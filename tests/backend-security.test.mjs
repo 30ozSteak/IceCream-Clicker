@@ -29,6 +29,7 @@ import {
   verifyRoundToken,
 } from "../lib/server/security.ts";
 import {
+  ADD_CURRENT_PACK_ID_COLUMN_SQL,
   ADD_PACKS_OPENED_COLUMN_SQL,
   BACKFILL_PACKS_OPENED_SQL,
   BACKFILL_PACK_TREATS_REMAINING_SQL,
@@ -718,21 +719,65 @@ test("a late pack migration preserves a pack opened by runtime bootstrap", () =>
   database.close();
 });
 
+test("a late capacity migration reconstructs progressed pack identity", () => {
+  const database = new DatabaseSync(":memory:");
+  database.exec(baseMigration);
+  database.exec(packMigration);
+  database.exec(packTreatsMigration());
+  database.exec(ADD_CURRENT_PACK_ID_COLUMN_SQL);
+  database.exec(`
+    INSERT INTO players (
+      id, session_token_hash, nickname, public_tag, sandwiches_fed,
+      sandwiches_thrown, packs_opened, pack_treats_remaining, current_pack_id,
+      score_version, current_image_id, next_image_id, last_accepted_at_ms,
+      last_throw_at_ms, leaderboard_visible, created_at_ms, updated_at_ms
+    ) VALUES ('progressed-player', 'progressed-hash', 'Progressed', 'CYCL',
+      36, 36, 7, 5, 'sugar-cookie-6', 43, 'a', 'b', 1000, 1000, 1, 0, 1000)
+  `);
+
+  const capacityMigration = migrations.find(({ filename }) =>
+    filename.startsWith("0003_"),
+  );
+  assert.ok(capacityMigration, "Expected a 0003 capacity migration.");
+  database.exec(capacityMigration.sql);
+
+  assert.deepEqual(
+    {
+      ...database
+        .prepare(`
+          SELECT packs_opened, pack_treats_remaining, current_pack_id
+          FROM players WHERE id = 'progressed-player'
+        `)
+        .get(),
+    },
+    {
+      packs_opened: 7,
+      pack_treats_remaining: 5,
+      current_pack_id: "sugar-cookie-6",
+    },
+  );
+  database.close();
+});
+
 test("runtime capacity upgrade preserves legacy bonus inventory and pack identity", () => {
   const database = new DatabaseSync(":memory:");
   database.exec(baseMigration);
   database.exec(packMigration);
   database.exec(packTreatsMigration());
+  database.exec(ADD_CURRENT_PACK_ID_COLUMN_SQL);
   database.exec(`
     INSERT INTO players (
       id, session_token_hash, nickname, public_tag, sandwiches_fed,
-      sandwiches_thrown, packs_opened, pack_treats_remaining, score_version,
+      sandwiches_thrown, packs_opened, pack_treats_remaining, current_pack_id,
+      score_version,
       current_image_id, next_image_id, last_accepted_at_ms, last_throw_at_ms,
       leaderboard_visible, created_at_ms, updated_at_ms
     ) VALUES
-      ('spent-bonus', 'hash-spent', 'Spent Bonus', 'SPNT', 13, 13, 2, 0, 14,
+      ('spent-bonus', 'hash-spent', 'Spent Bonus', 'SPNT', 13, 13, 2, 0,
+        'vanilla-6', 14,
         'a', 'b', 1000, 1000, 1, 0, 1000),
-      ('active-bonus', 'hash-active', 'Active Bonus', 'ACTV', 6, 6, 2, 7, 7,
+      ('active-bonus', 'hash-active', 'Active Bonus', 'ACTV', 36, 36, 7, 5,
+        'sugar-cookie-6', 43,
         'a', 'b', 1000, 1000, 1, 0, 1000)
   `);
 
@@ -764,8 +809,8 @@ test("runtime capacity upgrade preserves legacy bonus inventory and pack identit
     [
       {
         id: "active-bonus",
-        pack_treats_remaining: 7,
-        current_pack_id: "vanilla-6",
+        pack_treats_remaining: 5,
+        current_pack_id: "sugar-cookie-6",
       },
       {
         id: "spent-bonus",

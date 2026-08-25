@@ -90,7 +90,7 @@ export const REBUILD_PLAYERS_FOR_PACK_RELOAD_SQL = [
     leaderboard_visible, created_at_ms, updated_at_ms
   ) SELECT
     id, session_token_hash, nickname, public_tag, sandwiches_fed,
-    sandwiches_thrown, packs_opened, pack_treats_remaining, 'vanilla-6',
+    sandwiches_thrown, packs_opened, pack_treats_remaining, current_pack_id,
     score_version,
     current_image_id, next_image_id, last_accepted_at_ms, last_throw_at_ms,
     leaderboard_visible, created_at_ms, updated_at_ms

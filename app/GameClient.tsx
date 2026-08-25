@@ -338,6 +338,18 @@ function getReloadSuccessMessage(player: Player, quickOpen = false) {
   return `${prefix} ${numberFormatter.format(player.sandwichesRemaining)} treats ready.`;
 }
 
+function getAccessibleReloadShortcut(
+  mechanic: ReloadMechanicId | null | undefined,
+) {
+  if (mechanic === "triple-snap") {
+    return "Screen-reader shortcut: activate this box three times right away; no timed cue is needed.";
+  }
+  if (mechanic === "spiral-hold" || mechanic === "pop-launch") {
+    return "Screen-reader shortcut: activate this box twice right away; no timed cue is needed.";
+  }
+  return "";
+}
+
 function normalizeLeaderboardResponse(
   data: ApiLeaderboardResponse,
 ): LeaderboardResponse {
@@ -615,6 +627,7 @@ export function GameClient() {
   const [feedReaction, setFeedReaction] = useState<FeedReaction | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [announcement, setAnnouncement] = useState("");
+  const [urgentAnnouncement, setUrgentAnnouncement] = useState("");
   const [nicknameInput, setNicknameInput] = useState("");
   const [nicknameError, setNicknameError] = useState<string | null>(null);
   const [savingNickname, setSavingNickname] = useState(false);
@@ -662,6 +675,7 @@ export function GameClient() {
     setReloadGestureKind(null);
     setTripleSnapStep(0);
     setAccessibleReloadPending(false);
+    setUrgentAnnouncement("");
     setIsStartingReload(false);
     setIsCompletingReload(false);
   }, [cancelReloadWork]);
@@ -1275,6 +1289,7 @@ export function GameClient() {
     setReloadGestureKind(null);
     setTripleSnapStep(0);
     setAccessibleReloadPending(false);
+    setUrgentAnnouncement("");
     setReloadElapsedMs(0);
     setIsStartingReload(true);
     setAnnouncement("Starting pack reload.");
@@ -1302,7 +1317,10 @@ export function GameClient() {
       setReloadElapsedMs(
         Math.min(session.durationMs, responseReceivedAt - session.startedAt),
       );
-      setAnnouncement(`Reload started. ${session.pack.reload.instruction}`);
+      const accessibleShortcut = getAccessibleReloadShortcut(session.mechanic);
+      setAnnouncement(
+        `Reload started. ${session.pack.reload.instruction}${accessibleShortcut ? ` ${accessibleShortcut}` : ""}`,
+      );
     } catch (error) {
       if (reloadGenerationRef.current === generation) {
         try {
@@ -1346,7 +1364,28 @@ export function GameClient() {
         lastPaintAt = now;
       }
 
-      if (reloadAttemptRef.current === "none") {
+      if (
+        accessibleReloadPendingRef.current &&
+        reloadSession.windows.some((window) =>
+          isElapsedInWindow(elapsedMs, window),
+        )
+      ) {
+        accessibleReloadPendingRef.current = false;
+        setAccessibleReloadPending(false);
+        reloadAttemptRef.current = "perfect";
+        setReloadAttempt("perfect");
+        setReloadGestureKind(null);
+        setAnnouncement("Accessible quick-open ready. Opening the box now.");
+        reloadFrameRef.current = null;
+        void finishPackReload(reloadSession);
+        return;
+      }
+
+      if (
+        reloadAttemptRef.current === "none" &&
+        accessibleReloadStepRef.current === 0 &&
+        !accessibleReloadPendingRef.current
+      ) {
         const definition = reloadSession.pack.reload;
         const gesture = reloadGestureRef.current;
         let missedMessage: string | null = null;
@@ -1409,7 +1448,7 @@ export function GameClient() {
 
         if (activeCue && reloadCueRef.current !== activeCue) {
           reloadCueRef.current = activeCue;
-          setAnnouncement(activeCue);
+          setUrgentAnnouncement(activeCue);
         }
 
         if (missedMessage) {
@@ -1447,7 +1486,10 @@ export function GameClient() {
 
   const clearReloadGesture = () => {
     reloadGestureRef.current = null;
+    accessibleReloadStepRef.current = 0;
+    accessibleReloadPendingRef.current = false;
     setReloadGestureKind(null);
+    setAccessibleReloadPending(false);
   };
 
   const missQuickOpen = (message: string) => {
@@ -1577,6 +1619,84 @@ export function GameClient() {
     }
   };
 
+  const handleAccessibleReloadActivation = (session: ReloadSession) => {
+    const definition = session.pack.reload;
+    if (
+      definition.id !== "spiral-hold" &&
+      definition.id !== "triple-snap" &&
+      definition.id !== "pop-launch"
+    ) {
+      return false;
+    }
+
+    if (accessibleReloadPendingRef.current) {
+      setAnnouncement(
+        "Accessible quick-open sequence complete. Waiting for the safe opening cue.",
+      );
+      return true;
+    }
+
+    const requiredSteps = definition.id === "triple-snap" ? 3 : 2;
+    const nextStep = Math.min(
+      requiredSteps,
+      accessibleReloadStepRef.current + 1,
+    );
+    accessibleReloadStepRef.current = nextStep;
+
+    if (definition.id === "triple-snap") {
+      tripleSnapStepRef.current = nextStep;
+      setTripleSnapStep(nextStep);
+    } else {
+      setReloadGestureKind(definition.id);
+    }
+
+    if (nextStep === requiredSteps) {
+      accessibleReloadPendingRef.current = true;
+      setAccessibleReloadPending(true);
+      setAnnouncement(
+        "Accessible quick-open sequence complete. The box will open at the next safe cue.",
+      );
+    } else {
+      setAnnouncement(
+        `Accessible quick-open step ${nextStep} of ${requiredSteps} recorded. Activate the box again right away.`,
+      );
+    }
+    return true;
+  };
+
+  const attemptTripleSnap = (session: ReloadSession) => {
+    const definition = session.pack.reload;
+    if (definition.id !== "triple-snap") {
+      return;
+    }
+
+    const elapsedMs = currentReloadElapsed(session);
+    setReloadElapsedMs(Math.min(elapsedMs, session.durationMs));
+    const result = advanceTripleSnap(
+      tripleSnapStepRef.current,
+      elapsedMs,
+      definition,
+    );
+    if (result.status === "progress") {
+      tripleSnapStepRef.current = result.nextStep;
+      setTripleSnapStep(result.nextStep);
+      setAnnouncement(
+        `Chocolate snap ${result.nextStep} of ${definition.beats.length}. Get ready for the next beat.`,
+      );
+    } else if (result.status === "perfect") {
+      tripleSnapStepRef.current = result.nextStep;
+      setTripleSnapStep(result.nextStep);
+      completeQuickOpen(
+        session,
+        "All three chocolate snaps landed. Opening the box now.",
+      );
+    } else {
+      missQuickOpen(
+        "A chocolate snap missed its beat. This box will finish automatically.",
+      );
+    }
+  };
+
   const handleOpenPack = (event: ReactMouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
@@ -1607,52 +1727,21 @@ export function GameClient() {
     }
 
     const definition = session.pack.reload;
+    if (event.detail === 0 && handleAccessibleReloadActivation(session)) {
+      return;
+    }
     if (definition.id === "spiral-hold" || definition.id === "pop-launch") {
-      if (event.detail === 0) {
-        const gesture = reloadGestureRef.current;
-        if (!gesture) {
-          beginTimedGesture(session, null, 0);
-        } else if (
-          gesture.kind === definition.id &&
-          gesture.pointerId === null
-        ) {
-          finishTimedGesture(session, 0, definition.id === "pop-launch");
-        }
-      } else {
-        setAnnouncement(definition.instruction);
-      }
+      setAnnouncement(definition.instruction);
+      return;
+    }
+
+    if (definition.id === "triple-snap") {
+      attemptTripleSnap(session);
       return;
     }
 
     const elapsedMs = currentReloadElapsed(session);
     setReloadElapsedMs(Math.min(elapsedMs, session.durationMs));
-
-    if (definition.id === "triple-snap") {
-      const result = advanceTripleSnap(
-        tripleSnapStepRef.current,
-        elapsedMs,
-        definition,
-      );
-      if (result.status === "progress") {
-        tripleSnapStepRef.current = result.nextStep;
-        setTripleSnapStep(result.nextStep);
-        setAnnouncement(
-          `Chocolate snap ${result.nextStep} of ${definition.beats.length}. Get ready for the next beat.`,
-        );
-      } else if (result.status === "perfect") {
-        tripleSnapStepRef.current = result.nextStep;
-        setTripleSnapStep(result.nextStep);
-        completeQuickOpen(
-          session,
-          "All three chocolate snaps landed. Opening the box now.",
-        );
-      } else {
-        missQuickOpen(
-          "A chocolate snap missed its beat. This box will finish automatically.",
-        );
-      }
-      return;
-    }
 
     if (session.windows.some((window) => isElapsedInWindow(elapsedMs, window))) {
       completeQuickOpen(session, "Quick-open timing locked. Opening the box now.");
@@ -1672,6 +1761,7 @@ export function GameClient() {
       event.button !== 0 ||
       !session ||
       reloadAttemptRef.current !== "none" ||
+      accessibleReloadStepRef.current > 0 ||
       packLockRef.current ||
       (session.mechanic !== "spiral-hold" && session.mechanic !== "pop-launch")
     ) {
@@ -1738,12 +1828,22 @@ export function GameClient() {
     if (
       !session ||
       reloadAttemptRef.current !== "none" ||
+      accessibleReloadStepRef.current > 0 ||
       packLockRef.current
     ) {
       return;
     }
     const definition = session.pack.reload;
     const activationKey = event.key === " " || event.key === "Enter";
+
+    if (definition.id === "triple-snap" && activationKey) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!event.repeat) {
+        attemptTripleSnap(session);
+      }
+      return;
+    }
 
     if (definition.id === "spiral-hold" && activationKey) {
       event.preventDefault();
@@ -1909,6 +2009,8 @@ export function GameClient() {
       ? "quick open!"
       : reloadAttempt === "missed"
         ? "timing missed · auto finishing"
+        : accessibleReloadPending
+          ? "sequence complete · opening on cue"
         : reloadSession.mechanic === "hands-off"
           ? "hands off · settling"
           : reloadSession.mechanic === "spiral-hold"
@@ -1975,6 +2077,9 @@ export function GameClient() {
   const twelvePackUnlocked = Boolean(
     player?.packsCleared === 3 && reloadPack?.id === "vanilla-12",
   );
+  const reloadAccessibleShortcut = getAccessibleReloadShortcut(
+    reloadPack?.reload.id,
+  );
   const reloadEyebrow = twelvePackUnlocked
     ? "New · 12-pack unlocked"
     : boxesUntilUnlock > 0
@@ -1993,6 +2098,8 @@ export function GameClient() {
           ? `${reloadPack?.name ?? "The box"} is opening automatically.`
           : reloadAttempt === "missed"
             ? "Quick-open timing missed. The box will finish automatically."
+            : accessibleReloadPending
+              ? "Accessible quick-open sequence complete. Waiting for the safe opening cue."
             : reloadSession.mechanic === "spiral-hold"
               ? reloadGestureKind
                 ? "Keep holding, then release when GLAZE is active."
@@ -2016,13 +2123,17 @@ export function GameClient() {
           ? "No second click needed. Let the slow caramel pour finish on its own."
           : reloadAttempt === "missed"
             ? "Quick-open timing missed. Your full box will still open automatically."
+            : accessibleReloadPending
+              ? "Accessible quick-open sequence complete. The box will open automatically at the next safe cue."
             : reloadSession.mechanic === "pop-launch"
-              ? `${reloadPack?.reload.instruction ?? "Launch the pop."} Keyboard: press Space or Enter on LAUNCH, then Arrow Up on PARTY.`
+              ? `${reloadPack?.reload.instruction ?? "Launch the pop."} Keyboard: press Space or Enter on LAUNCH, then Arrow Up on PARTY. Screen-reader shortcut: activate twice right away; no timed cue is needed.`
               : reloadSession.mechanic === "spiral-hold"
-                ? `${reloadPack?.reload.instruction ?? "Hold for the spiral."} Keyboard: hold Space or Enter, then release on GLAZE.`
-            : reloadPack?.reload.instruction ?? "Watch the timer for your opening."
+                ? `${reloadPack?.reload.instruction ?? "Hold for the spiral."} Keyboard: hold Space or Enter, then release on GLAZE. Screen-reader shortcut: activate twice right away; no timed cue is needed.`
+                : reloadSession.mechanic === "triple-snap"
+                  ? `${reloadPack?.reload.instruction ?? "Snap the chocolate beats."} Screen-reader shortcut: activate three times right away; no timed cue is needed.`
+                  : reloadPack?.reload.instruction ?? "Watch the timer for your opening."
         : reloadPack
-          ? `${reloadPack.quantity} treats inside. ${reloadPack.reload.instruction}`
+          ? `${reloadPack.quantity} treats inside. ${reloadPack.reload.instruction}${reloadAccessibleShortcut ? ` ${reloadAccessibleShortcut}` : ""}`
           : "Start the next box reload.";
   const reloadMeterValueText = reloadAttempt === "perfect"
     ? "Quick-open timing registered. Opening the box."
@@ -2170,6 +2281,7 @@ export function GameClient() {
                   disabled={
                     isStartingReload ||
                     isCompletingReload ||
+                    accessibleReloadPending ||
                     offline ||
                     Boolean(
                       reloadSession &&
@@ -2402,6 +2514,9 @@ export function GameClient() {
       ) : null}
       <div className="sr-only" aria-live="polite" aria-atomic="true">
         {announcement}
+      </div>
+      <div className="sr-only" role="alert" aria-atomic="true">
+        {urgentAnnouncement}
       </div>
 
       {nicknameRequired ? (

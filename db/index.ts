@@ -251,7 +251,7 @@ export async function ensureGameSchema(): Promise<void> {
   let columns = await playerColumnNames(d1);
   columns = await ensurePackStateSchema(d1, columns);
   columns = await ensureThrowStateSchema(d1, columns);
-  await ensurePackReloadStateSchema(d1, columns);
-  columns = await playerColumnNames(d1);
   await ensureCurrentPackIdentitySchema(d1, columns);
+  columns = await playerColumnNames(d1);
+  await ensurePackReloadStateSchema(d1, columns);
 }
