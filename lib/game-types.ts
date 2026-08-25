@@ -38,6 +38,33 @@ export interface FeedRequest {
   y: number;
 }
 
+export interface StartPackReloadRequest {
+  action: "start";
+  expectedScoreVersion: number;
+}
+
+export interface CompletePackReloadRequest {
+  action: "complete";
+  reloadToken: string;
+}
+
+export interface PackReloadStartResponse {
+  reload: {
+    token: string;
+    durationMs: number;
+    activeStartMs: number;
+    activeEndMs: number;
+  };
+}
+
+export type PackReloadResponse = GameStateResponse | PackReloadStartResponse;
+
+export type FeedOutcome = "hit" | "miss";
+
+export interface FeedResponse extends GameStateResponse {
+  outcome: FeedOutcome;
+}
+
 export interface LeaderboardEntry {
   position: number;
   displayName: string;
@@ -60,6 +87,15 @@ export interface RoundTokenClaims {
   playerId: string;
   scoreVersion: number;
   portraitId: string;
+  expiresAtMs: number;
+}
+
+export interface PackReloadTokenClaims {
+  kind: "pack-reload";
+  playerId: string;
+  scoreVersion: number;
+  packsOpened: number;
+  startedAtMs: number;
   expiresAtMs: number;
 }
 

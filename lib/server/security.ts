@@ -1,11 +1,22 @@
-import type { RoundTokenClaims } from "../game-types";
+import type {
+  PackReloadTokenClaims,
+  RoundTokenClaims,
+} from "../game-types";
 
 const SESSION_TOKEN_BYTES = 32;
 const HMAC_SIGNATURE_BYTES = 32;
+const PACK_RELOAD_TOKEN_DOMAIN = "fatboy.pack-reload.v1";
 const encoder = new TextEncoder();
 
 export type RoundTokenVerification =
   | { ok: true; claims: RoundTokenClaims }
+  | {
+      ok: false;
+      reason: "malformed" | "invalid-signature" | "expired";
+    };
+
+export type PackReloadTokenVerification =
+  | { ok: true; claims: PackReloadTokenClaims }
   | {
       ok: false;
       reason: "malformed" | "invalid-signature" | "expired";
@@ -59,6 +70,48 @@ function isRoundTokenClaims(value: unknown): value is RoundTokenClaims {
   );
 }
 
+function isPackReloadTokenClaims(value: unknown): value is PackReloadTokenClaims {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+
+  const expectedKeys = new Set([
+    "kind",
+    "playerId",
+    "scoreVersion",
+    "packsOpened",
+    "startedAtMs",
+    "expiresAtMs",
+  ]);
+  const keys = Object.keys(value);
+  return (
+    keys.length === expectedKeys.size &&
+    keys.every((key) => expectedKeys.has(key)) &&
+    "kind" in value &&
+    value.kind === "pack-reload" &&
+    "playerId" in value &&
+    typeof value.playerId === "string" &&
+    value.playerId.length > 0 &&
+    value.playerId.length <= 128 &&
+    "scoreVersion" in value &&
+    typeof value.scoreVersion === "number" &&
+    Number.isSafeInteger(value.scoreVersion) &&
+    value.scoreVersion >= 0 &&
+    "packsOpened" in value &&
+    typeof value.packsOpened === "number" &&
+    Number.isSafeInteger(value.packsOpened) &&
+    value.packsOpened >= 1 &&
+    "startedAtMs" in value &&
+    typeof value.startedAtMs === "number" &&
+    Number.isSafeInteger(value.startedAtMs) &&
+    value.startedAtMs > 0 &&
+    "expiresAtMs" in value &&
+    typeof value.expiresAtMs === "number" &&
+    Number.isSafeInteger(value.expiresAtMs) &&
+    value.expiresAtMs > value.startedAtMs
+  );
+}
+
 async function hmac(payload: string, secret: string): Promise<Uint8Array> {
   const key = await crypto.subtle.importKey(
     "raw",
@@ -70,6 +123,10 @@ async function hmac(payload: string, secret: string): Promise<Uint8Array> {
   return new Uint8Array(
     await crypto.subtle.sign("HMAC", key, encoder.encode(payload)),
   );
+}
+
+function domainPayload(domain: string, payload: string): string {
+  return `${domain}\u0000${payload}`;
 }
 
 function timingSafeEqual(left: Uint8Array, right: Uint8Array): boolean {
@@ -173,12 +230,76 @@ export async function verifyRoundToken(
 
   let parsed: unknown;
   try {
-    parsed = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(payloadBytes));
+    parsed = JSON.parse(
+      new TextDecoder("utf-8", { fatal: true }).decode(payloadBytes),
+    );
   } catch {
     return { ok: false, reason: "malformed" };
   }
 
   if (!isRoundTokenClaims(parsed)) {
+    return { ok: false, reason: "malformed" };
+  }
+  if (parsed.expiresAtMs <= nowMs) {
+    return { ok: false, reason: "expired" };
+  }
+
+  return { ok: true, claims: parsed };
+}
+
+export async function signPackReloadToken(
+  claims: PackReloadTokenClaims,
+  secret: string,
+): Promise<string> {
+  const payload = bytesToBase64Url(encoder.encode(JSON.stringify(claims)));
+  const signature = await hmac(
+    domainPayload(PACK_RELOAD_TOKEN_DOMAIN, payload),
+    secret,
+  );
+  return `${payload}.${bytesToBase64Url(signature)}`;
+}
+
+export async function verifyPackReloadToken(
+  token: string,
+  secret: string,
+  nowMs = Date.now(),
+): Promise<PackReloadTokenVerification> {
+  if (token.length > 1_024) {
+    return { ok: false, reason: "malformed" };
+  }
+
+  const segments = token.split(".");
+  if (segments.length !== 2 || !segments[0] || !segments[1]) {
+    return { ok: false, reason: "malformed" };
+  }
+
+  const [payload, encodedSignature] = segments;
+  const suppliedSignature = base64UrlToBytes(encodedSignature);
+  const expectedSignature = await hmac(
+    domainPayload(PACK_RELOAD_TOKEN_DOMAIN, payload),
+    secret,
+  );
+  const signatureMatches = timingSafeEqual(
+    expectedSignature,
+    suppliedSignature ?? new Uint8Array(HMAC_SIGNATURE_BYTES),
+  );
+  if (!suppliedSignature || !signatureMatches) {
+    return { ok: false, reason: "invalid-signature" };
+  }
+
+  const payloadBytes = base64UrlToBytes(payload);
+  if (!payloadBytes) {
+    return { ok: false, reason: "malformed" };
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(payloadBytes));
+  } catch {
+    return { ok: false, reason: "malformed" };
+  }
+
+  if (!isPackReloadTokenClaims(parsed)) {
     return { ok: false, reason: "malformed" };
   }
   if (parsed.expiresAtMs <= nowMs) {

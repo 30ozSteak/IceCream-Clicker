@@ -1,13 +1,16 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import {
+  ACTIVE_RELOAD_END_GRACE_MS,
+  ACTIVE_RELOAD_END_MS,
+  ACTIVE_RELOAD_START_MS,
   claimsMatchRound,
+  classifyPackReload,
   feedWaitMs,
   isPointInsideMouth,
-  sandwichesRemainingInPack,
-  SANDWICHES_PER_PACK,
+  PACK_RELOAD_DURATION_MS,
 } from "../lib/server/game-rules.ts";
 import {
   expiredSessionCookie,
@@ -19,7 +22,9 @@ import {
   createSessionToken,
   hashSessionToken,
   isSessionToken,
+  signPackReloadToken,
   signRoundToken,
+  verifyPackReloadToken,
   verifyRoundToken,
 } from "../lib/server/security.ts";
 import {
@@ -28,18 +33,30 @@ import {
 } from "../db/schema-maintenance.ts";
 
 const TEST_SECRET = "test-round-secret-that-is-at-least-32-bytes-long";
-const baseMigration = readFileSync(
-  new URL("../drizzle/0000_volatile_mongu.sql", import.meta.url),
-  "utf8",
-).replaceAll("--> statement-breakpoint", "");
-const packMigration = readFileSync(
-  new URL("../drizzle/0001_cool_wendell_vaughn.sql", import.meta.url),
-  "utf8",
-).replaceAll("--> statement-breakpoint", "");
+const migrationsDirectory = new URL("../drizzle/", import.meta.url);
+const migrations = readdirSync(migrationsDirectory)
+  .filter((filename) => /^\d{4}_.+\.sql$/u.test(filename))
+  .sort()
+  .map((filename) => ({
+    filename,
+    sql: readFileSync(new URL(filename, migrationsDirectory), "utf8").replaceAll(
+      "--> statement-breakpoint",
+      "",
+    ),
+  }));
+const baseMigration = migrations[0].sql;
+const packMigration = migrations[1].sql;
+
+function packTreatsMigration() {
+  const migration = migrations.find(({ filename }) => filename.startsWith("0002_"));
+  assert.ok(migration, "Expected a 0002 pack-treat inventory migration.");
+  return migration.sql;
+}
 
 function applyAllMigrations(database) {
-  database.exec(baseMigration);
-  database.exec(packMigration);
+  for (const migration of migrations) {
+    database.exec(migration.sql);
+  }
 }
 
 test("nickname validation normalizes supported names", () => {
@@ -110,16 +127,30 @@ test("feed timing and round claims reject stale state", () => {
   );
 });
 
-test("six sandwiches exhaust a pack and invalid pack windows fail closed", () => {
-  assert.equal(SANDWICHES_PER_PACK, 6);
-  assert.equal(sandwichesRemainingInPack(0, 1), 6);
-  assert.equal(sandwichesRemainingInPack(5, 1), 1);
-  assert.equal(sandwichesRemainingInPack(6, 1), 0);
-  assert.equal(sandwichesRemainingInPack(6, 2), 6);
-  assert.equal(sandwichesRemainingInPack(11, 2), 1);
-  assert.equal(sandwichesRemainingInPack(12, 2), 0);
-  assert.throws(() => sandwichesRemainingInPack(7, 1), /outside the active pack/u);
-  assert.throws(() => sandwichesRemainingInPack(0, 0), /invalid/u);
+test("active reload timing classifies every boundary", () => {
+  assert.ok(ACTIVE_RELOAD_START_MS > 0);
+  assert.ok(ACTIVE_RELOAD_START_MS < ACTIVE_RELOAD_END_MS);
+  assert.ok(
+    ACTIVE_RELOAD_END_MS + ACTIVE_RELOAD_END_GRACE_MS <
+      PACK_RELOAD_DURATION_MS,
+  );
+
+  assert.equal(classifyPackReload(0), "waiting");
+  assert.equal(classifyPackReload(ACTIVE_RELOAD_START_MS - 1), "waiting");
+  assert.equal(classifyPackReload(ACTIVE_RELOAD_START_MS), "perfect");
+  assert.equal(classifyPackReload(ACTIVE_RELOAD_END_MS), "perfect");
+  assert.equal(
+    classifyPackReload(ACTIVE_RELOAD_END_MS + ACTIVE_RELOAD_END_GRACE_MS),
+    "perfect",
+  );
+  assert.equal(
+    classifyPackReload(ACTIVE_RELOAD_END_MS + ACTIVE_RELOAD_END_GRACE_MS + 1),
+    "waiting",
+  );
+  assert.equal(classifyPackReload(PACK_RELOAD_DURATION_MS - 1), "waiting");
+  assert.equal(classifyPackReload(PACK_RELOAD_DURATION_MS), "standard");
+  assert.equal(classifyPackReload(PACK_RELOAD_DURATION_MS + 1), "standard");
+  assert.throws(() => classifyPackReload(Number.NaN), /finite/u);
 });
 
 test("round tokens verify, expire, and fail after tampering", async () => {
@@ -144,6 +175,53 @@ test("round tokens verify, expire, and fail after tampering", async () => {
   const replacement = signature[0] === "A" ? "B" : "A";
   const tampered = `${payload}.${replacement}${signature.slice(1)}`;
   assert.deepEqual(await verifyRoundToken(tampered, TEST_SECRET, 9_999), {
+    ok: false,
+    reason: "invalid-signature",
+  });
+});
+
+test("pack reload tokens verify, expire, reject tampering, and are domain-bound", async () => {
+  const claims = {
+    kind: "pack-reload",
+    playerId: "player-1",
+    scoreVersion: 6,
+    packsOpened: 1,
+    startedAtMs: 5_000,
+    expiresAtMs: 10_000,
+  };
+  const token = await signPackReloadToken(claims, TEST_SECRET);
+
+  assert.deepEqual(await verifyPackReloadToken(token, TEST_SECRET, 9_999), {
+    ok: true,
+    claims,
+  });
+  assert.deepEqual(await verifyPackReloadToken(token, TEST_SECRET, 10_000), {
+    ok: false,
+    reason: "expired",
+  });
+
+  const [payload, signature] = token.split(".");
+  const replacement = signature[0] === "A" ? "B" : "A";
+  const tampered = `${payload}.${replacement}${signature.slice(1)}`;
+  assert.deepEqual(await verifyPackReloadToken(tampered, TEST_SECRET, 9_999), {
+    ok: false,
+    reason: "invalid-signature",
+  });
+
+  const roundToken = await signRoundToken(
+    {
+      playerId: claims.playerId,
+      scoreVersion: claims.scoreVersion,
+      portraitId: "portrait-1",
+      expiresAtMs: claims.expiresAtMs,
+    },
+    TEST_SECRET,
+  );
+  assert.deepEqual(await verifyPackReloadToken(roundToken, TEST_SECRET, 9_999), {
+    ok: false,
+    reason: "invalid-signature",
+  });
+  assert.deepEqual(await verifyRoundToken(token, TEST_SECRET, 9_999), {
     ok: false,
     reason: "invalid-signature",
   });
@@ -177,18 +255,20 @@ test("migration is idempotent and leaderboard uses score-reached time", () => {
   database.exec(baseMigration);
   database.exec(baseMigration);
   database.exec(packMigration);
+  database.exec(packTreatsMigration());
   const insert = database.prepare(`
     INSERT INTO players (
       id, session_token_hash, nickname, public_tag, sandwiches_fed,
-      packs_opened, score_version, current_image_id, next_image_id,
-      last_accepted_at_ms, leaderboard_visible, created_at_ms, updated_at_ms
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      sandwiches_thrown, packs_opened, pack_treats_remaining, score_version,
+      current_image_id, next_image_id, last_accepted_at_ms, last_throw_at_ms,
+      leaderboard_visible, created_at_ms, updated_at_ms
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
-  insert.run("a", "hash-a", "Alpha", "AAAA", 5, 1, 5, "1", "2", 300, 1, 100, 300);
-  insert.run("b", "hash-b", "Bravo", "BBBB", 5, 1, 5, "1", "2", 200, 1, 50, 200);
-  insert.run("c", "hash-c", "Charlie", "CCCC", 5, 1, 5, "1", "2", null, 1, 150, 150);
-  insert.run("d", "hash-d", "Hidden", "DDDD", 999, 167, 9, "1", "2", 10, 0, 10, 10);
-  insert.run("e", "hash-e", "Echo", "EEEE", 6, 1, 6, "1", "2", 400, 1, 400, 400);
+  insert.run("a", "hash-a", "Alpha", "AAAA", 5, 5, 1, 1, 5, "1", "2", 300, 300, 1, 100, 300);
+  insert.run("b", "hash-b", "Bravo", "BBBB", 5, 5, 1, 1, 5, "1", "2", 200, 200, 1, 50, 200);
+  insert.run("c", "hash-c", "Charlie", "CCCC", 5, 5, 1, 1, 5, "1", "2", null, null, 1, 150, 150);
+  insert.run("d", "hash-d", "Hidden", "DDDD", 999, 999, 167, 3, 9, "1", "2", 10, 10, 0, 10, 10);
+  insert.run("e", "hash-e", "Echo", "EEEE", 6, 6, 1, 0, 6, "1", "2", 400, 400, 1, 400, 400);
   for (const id of ["f", "g", "h", "i", "j", "k", "l", "m"]) {
     insert.run(
       id,
@@ -196,17 +276,20 @@ test("migration is idempotent and leaderboard uses score-reached time", () => {
       `Player ${id}`,
       id.toUpperCase().repeat(4),
       4,
+      4,
       1,
+      2,
       4,
       "1",
       "2",
+      500,
       500,
       1,
       500,
       500,
     );
   }
-  insert.run("n", "hash-n", null, "NNNN", 50, 9, 50, "1", "2", 600, 1, 600, 600);
+  insert.run("n", "hash-n", null, "NNNN", 50, 50, 9, 4, 50, "1", "2", 600, 600, 1, 600, 600);
 
   database.exec("UPDATE players SET nickname = 'Renamed', updated_at_ms = 9999 WHERE id = 'c'");
   const leaders = database
@@ -232,39 +315,61 @@ test("migration is idempotent and leaderboard uses score-reached time", () => {
   database.close();
 });
 
-test("the atomic feed transition rejects replay and enforces 200ms", () => {
+test("atomic throws spend a seven-treat pack, score only hits, and reject replay", () => {
   const database = new DatabaseSync(":memory:");
   applyAllMigrations(database);
   database
     .prepare(`
       INSERT INTO players (
         id, session_token_hash, nickname, public_tag, sandwiches_fed,
-        score_version, current_image_id, next_image_id, last_accepted_at_ms,
+        sandwiches_thrown, packs_opened, pack_treats_remaining, score_version,
+        current_image_id, next_image_id, last_accepted_at_ms, last_throw_at_ms,
         leaderboard_visible, created_at_ms, updated_at_ms
-      ) VALUES (?, ?, ?, ?, 0, 0, ?, ?, null, 1, 0, 0)
+      ) VALUES (?, ?, ?, ?, 0, 0, 1, 7, 0, ?, ?, null, null, 1, 0, 0)
     `)
     .run("player", "session-hash", "Tester", "TEST", "portrait-a", "portrait-b");
 
-  const atomicFeed = database.prepare(`
+  const atomicHit = database.prepare(`
     UPDATE players SET
       sandwiches_fed = sandwiches_fed + 1,
+      sandwiches_thrown = sandwiches_thrown + 1,
+      pack_treats_remaining = pack_treats_remaining - 1,
       score_version = score_version + 1,
       current_image_id = ?,
       next_image_id = ?,
       last_accepted_at_ms = ?,
+      last_throw_at_ms = ?,
       updated_at_ms = ?
     WHERE id = ?
       AND session_token_hash = ?
       AND score_version = ?
       AND current_image_id = ?
-      AND sandwiches_fed < packs_opened * 6
-      AND (last_accepted_at_ms IS NULL OR last_accepted_at_ms <= ?)
-    RETURNING sandwiches_fed, score_version, current_image_id
+      AND pack_treats_remaining > 0
+      AND (last_throw_at_ms IS NULL OR last_throw_at_ms <= ?)
+    RETURNING sandwiches_fed, sandwiches_thrown, pack_treats_remaining,
+      score_version, current_image_id, last_accepted_at_ms, last_throw_at_ms
+  `);
+  const atomicMiss = database.prepare(`
+    UPDATE players SET
+      sandwiches_thrown = sandwiches_thrown + 1,
+      pack_treats_remaining = pack_treats_remaining - 1,
+      score_version = score_version + 1,
+      last_throw_at_ms = ?,
+      updated_at_ms = ?
+    WHERE id = ?
+      AND session_token_hash = ?
+      AND score_version = ?
+      AND current_image_id = ?
+      AND pack_treats_remaining > 0
+      AND (last_throw_at_ms IS NULL OR last_throw_at_ms <= ?)
+    RETURNING sandwiches_fed, sandwiches_thrown, pack_treats_remaining,
+      score_version, current_image_id, last_accepted_at_ms, last_throw_at_ms
   `);
 
-  const first = atomicFeed.get(
+  const first = atomicHit.get(
     "portrait-b",
     "portrait-c",
+    1_000,
     1_000,
     1_000,
     "player",
@@ -275,13 +380,18 @@ test("the atomic feed transition rejects replay and enforces 200ms", () => {
   );
   assert.deepEqual({ ...first }, {
     sandwiches_fed: 1,
+    sandwiches_thrown: 1,
+    pack_treats_remaining: 6,
     score_version: 1,
     current_image_id: "portrait-b",
+    last_accepted_at_ms: 1_000,
+    last_throw_at_ms: 1_000,
   });
 
-  const replay = atomicFeed.get(
+  const replay = atomicHit.get(
     "portrait-b",
     "portrait-c",
+    1_000,
     1_000,
     1_000,
     "player",
@@ -292,9 +402,7 @@ test("the atomic feed transition rejects replay and enforces 200ms", () => {
   );
   assert.equal(replay, undefined);
 
-  const tooFast = atomicFeed.get(
-    "portrait-c",
-    "portrait-d",
+  const tooFast = atomicMiss.get(
     1_100,
     1_100,
     "player",
@@ -305,9 +413,7 @@ test("the atomic feed transition rejects replay and enforces 200ms", () => {
   );
   assert.equal(tooFast, undefined);
 
-  const atBoundary = atomicFeed.get(
-    "portrait-c",
-    "portrait-d",
+  const missAtBoundary = atomicMiss.get(
     1_200,
     1_200,
     "player",
@@ -316,51 +422,119 @@ test("the atomic feed transition rejects replay and enforces 200ms", () => {
     "portrait-b",
     1_000,
   );
-  assert.deepEqual({ ...atBoundary }, {
-    sandwiches_fed: 2,
+  assert.deepEqual({ ...missAtBoundary }, {
+    sandwiches_fed: 1,
+    sandwiches_thrown: 2,
+    pack_treats_remaining: 5,
     score_version: 2,
-    current_image_id: "portrait-c",
+    current_image_id: "portrait-b",
+    last_accepted_at_ms: 1_000,
+    last_throw_at_ms: 1_200,
   });
+
+  const portraits = ["c", "d", "e", "f", "g", "h"];
+  let currentPortrait = "portrait-b";
+  for (let index = 0; index < 5; index += 1) {
+    const nowMs = 1_400 + index * 200;
+    const nextPortrait = `portrait-${portraits[index]}`;
+    const followingPortrait = `portrait-${portraits[index + 1]}`;
+    const accepted = atomicHit.get(
+      nextPortrait,
+      followingPortrait,
+      nowMs,
+      nowMs,
+      nowMs,
+      "player",
+      "session-hash",
+      2 + index,
+      currentPortrait,
+      nowMs - 200,
+    );
+    assert.deepEqual(
+      {
+        sandwiches_fed: accepted.sandwiches_fed,
+        sandwiches_thrown: accepted.sandwiches_thrown,
+        pack_treats_remaining: accepted.pack_treats_remaining,
+        score_version: accepted.score_version,
+      },
+      {
+        sandwiches_fed: 2 + index,
+        sandwiches_thrown: 3 + index,
+        pack_treats_remaining: 4 - index,
+        score_version: 3 + index,
+      },
+    );
+    currentPortrait = nextPortrait;
+  }
+
+  assert.equal(
+    atomicMiss.get(
+      2_400,
+      2_400,
+      "player",
+      "session-hash",
+      7,
+      currentPortrait,
+      2_200,
+    ),
+    undefined,
+  );
   database.close();
 });
 
-test("pack opening is atomic, versioned, and cannot be replayed later", () => {
+test("normal and perfect pack openings are atomic and cannot be replayed", () => {
   const database = new DatabaseSync(":memory:");
   applyAllMigrations(database);
   database
     .prepare(`
       INSERT INTO players (
         id, session_token_hash, nickname, public_tag, sandwiches_fed,
-        packs_opened, score_version, current_image_id, next_image_id,
-        last_accepted_at_ms, leaderboard_visible, created_at_ms, updated_at_ms
-      ) VALUES ('player', 'session-hash', 'Tester', 'PACK', 6, 1, 6,
-        'portrait-a', 'portrait-b', 1000, 1, 0, 1000)
+        sandwiches_thrown, packs_opened, pack_treats_remaining, score_version,
+        current_image_id, next_image_id, last_accepted_at_ms, last_throw_at_ms,
+        leaderboard_visible, created_at_ms, updated_at_ms
+      ) VALUES ('player', 'session-hash', 'Tester', 'PACK', 5, 6, 1, 0, 6,
+        'portrait-a', 'portrait-b', 1000, 1200, 1, 0, 1200)
     `)
     .run();
 
   const openPack = database.prepare(`
     UPDATE players SET
+      pack_treats_remaining = ?,
       packs_opened = packs_opened + 1,
       score_version = score_version + 1,
       updated_at_ms = updated_at_ms + 1
     WHERE id = 'player'
       AND score_version = ?
-      AND sandwiches_fed = packs_opened * 6
-    RETURNING packs_opened, score_version
+      AND pack_treats_remaining = 0
+    RETURNING packs_opened, pack_treats_remaining, score_version
   `);
 
-  assert.deepEqual({ ...openPack.get(6) }, { packs_opened: 2, score_version: 7 });
-  assert.equal(openPack.get(6), undefined);
+  assert.deepEqual({ ...openPack.get(6, 6) }, {
+    packs_opened: 2,
+    pack_treats_remaining: 6,
+    score_version: 7,
+  });
+  assert.equal(openPack.get(7, 6), undefined);
 
   database.exec(
-    "UPDATE players SET sandwiches_fed = 12, score_version = 13 WHERE id = 'player'",
+    `UPDATE players SET
+      sandwiches_fed = 11,
+      sandwiches_thrown = 12,
+      pack_treats_remaining = 0,
+      score_version = 13
+    WHERE id = 'player'`,
   );
-  assert.equal(openPack.get(6), undefined);
-  assert.deepEqual({ ...openPack.get(13) }, { packs_opened: 3, score_version: 14 });
+  assert.equal(openPack.get(6, 6), undefined);
+  assert.deepEqual({ ...openPack.get(7, 13) }, {
+    packs_opened: 3,
+    pack_treats_remaining: 7,
+    score_version: 14,
+  });
+  assert.equal(openPack.get(6, 13), undefined);
   database.close();
 });
 
-test("legacy scores backfill into the correct active six-pack", () => {
+test("0002 backfills legacy throws and explicit pack inventory with checks", () => {
   const database = new DatabaseSync(":memory:");
   database.exec(baseMigration);
   const insert = database.prepare(`
@@ -377,26 +551,91 @@ test("legacy scores backfill into the correct active six-pack", () => {
   });
 
   database.exec(packMigration);
+  database.exec(packTreatsMigration());
   assert.deepEqual(
     database
-      .prepare("SELECT sandwiches_fed, packs_opened FROM players ORDER BY sandwiches_fed")
+      .prepare(`
+        SELECT sandwiches_fed, sandwiches_thrown, packs_opened,
+          pack_treats_remaining, last_throw_at_ms
+        FROM players ORDER BY sandwiches_fed
+      `)
       .all()
       .map((row) => ({ ...row })),
     [
-      { sandwiches_fed: 0, packs_opened: 1 },
-      { sandwiches_fed: 1, packs_opened: 1 },
-      { sandwiches_fed: 5, packs_opened: 1 },
-      { sandwiches_fed: 6, packs_opened: 1 },
-      { sandwiches_fed: 7, packs_opened: 2 },
-      { sandwiches_fed: 12, packs_opened: 2 },
+      {
+        sandwiches_fed: 0,
+        sandwiches_thrown: 0,
+        packs_opened: 1,
+        pack_treats_remaining: 6,
+        last_throw_at_ms: null,
+      },
+      {
+        sandwiches_fed: 1,
+        sandwiches_thrown: 1,
+        packs_opened: 1,
+        pack_treats_remaining: 5,
+        last_throw_at_ms: null,
+      },
+      {
+        sandwiches_fed: 5,
+        sandwiches_thrown: 5,
+        packs_opened: 1,
+        pack_treats_remaining: 1,
+        last_throw_at_ms: null,
+      },
+      {
+        sandwiches_fed: 6,
+        sandwiches_thrown: 6,
+        packs_opened: 1,
+        pack_treats_remaining: 0,
+        last_throw_at_ms: null,
+      },
+      {
+        sandwiches_fed: 7,
+        sandwiches_thrown: 7,
+        packs_opened: 2,
+        pack_treats_remaining: 5,
+        last_throw_at_ms: null,
+      },
+      {
+        sandwiches_fed: 12,
+        sandwiches_thrown: 12,
+        packs_opened: 2,
+        pack_treats_remaining: 0,
+        last_throw_at_ms: null,
+      },
     ],
   );
+  assert.throws(
+    () =>
+      database.exec(
+        "UPDATE players SET pack_treats_remaining = 8 WHERE id = 'player-0'",
+      ),
+    /CHECK constraint failed/u,
+  );
+  assert.throws(
+    () =>
+      database.exec(
+        "UPDATE players SET pack_treats_remaining = -1 WHERE id = 'player-0'",
+      ),
+    /CHECK constraint failed/u,
+  );
+  assert.throws(
+    () =>
+      database.exec(
+        `UPDATE players SET sandwiches_fed = 1, sandwiches_thrown = 0
+        WHERE id = 'player-0'`,
+      ),
+    /CHECK constraint failed/u,
+  );
+  assert.equal(database.prepare("PRAGMA integrity_check").get().integrity_check, "ok");
   database.close();
 });
 
 test("a late pack migration preserves a pack opened by runtime bootstrap", () => {
   const database = new DatabaseSync(":memory:");
-  applyAllMigrations(database);
+  database.exec(baseMigration);
+  database.exec(packMigration);
   database
     .prepare(`
       INSERT INTO players (
@@ -409,16 +648,24 @@ test("a late pack migration preserves a pack opened by runtime bootstrap", () =>
     .run();
 
   database.exec(packMigration);
+  database.exec(packTreatsMigration());
   assert.deepEqual(
     {
       ...database
         .prepare(`
-          SELECT sandwiches_fed, packs_opened, score_version
+          SELECT sandwiches_fed, sandwiches_thrown, packs_opened,
+            pack_treats_remaining, score_version
           FROM players WHERE id = 'runtime-player'
         `)
         .get(),
     },
-    { sandwiches_fed: 6, packs_opened: 2, score_version: 7 },
+    {
+      sandwiches_fed: 6,
+      sandwiches_thrown: 6,
+      packs_opened: 2,
+      pack_treats_remaining: 6,
+      score_version: 7,
+    },
   );
   database.close();
 });
@@ -465,9 +712,13 @@ test("hashed browser sessions restore, rename, and delete without score loss", a
     .prepare(`
       INSERT INTO players (
         id, session_token_hash, nickname, public_tag, sandwiches_fed,
-        packs_opened, score_version, current_image_id, next_image_id,
-        last_accepted_at_ms, leaderboard_visible, created_at_ms, updated_at_ms
-      ) VALUES ('player', ?, 'First Name', 'ABCD', 7, 2, 7, 'a', 'b', 700, 1, 0, 700)
+        sandwiches_thrown, packs_opened, pack_treats_remaining, score_version,
+        current_image_id, next_image_id, last_accepted_at_ms, last_throw_at_ms,
+        leaderboard_visible, created_at_ms, updated_at_ms
+      ) VALUES (
+        'player', ?, 'First Name', 'ABCD', 7, 7, 2, 5, 7,
+        'a', 'b', 700, 700, 1, 0, 700
+      )
     `)
     .run(tokenHash);
 

@@ -19,20 +19,27 @@ import {
 import type {
   DeletePlayerResponse,
   FeedRequest,
+  FeedResponse,
   GameStateResponse,
   LeaderboardResponse,
+  PackReloadResponse,
+  PackReloadTokenClaims,
   PlayerState,
   PortraitPreview,
   UpdatePlayerResponse,
 } from "../game-types";
 import { ApiError } from "./api-error";
 import {
+  ACTIVE_RELOAD_END_MS,
+  ACTIVE_RELOAD_START_MS,
   claimsMatchRound,
+  classifyPackReload,
   feedWaitMs,
   isNormalizedCoordinate,
   isPointInsideMouth,
+  MAX_TREATS_PER_PACK,
   MIN_FEED_INTERVAL_MS,
-  sandwichesRemainingInPack,
+  PACK_RELOAD_DURATION_MS,
   SANDWICHES_PER_PACK,
 } from "./game-rules";
 import { readCookie, SESSION_COOKIE_NAME } from "./http";
@@ -44,11 +51,14 @@ import {
   isSessionToken,
   randomPublicTag,
   secureRandomIndex,
+  signPackReloadToken,
   signRoundToken,
+  verifyPackReloadToken,
   verifyRoundToken,
 } from "./security";
 
 const ROUND_TOKEN_TTL_MS = 5 * 60 * 1_000;
+const PACK_RELOAD_TOKEN_TTL_MS = 5 * 60 * 1_000;
 const MAX_PLAYER_CREATION_ATTEMPTS = 8;
 
 type GameDb = ReturnType<typeof getDb>;
@@ -73,10 +83,7 @@ function playerState(player: PlayerRow): PlayerState {
     publicTag: player.publicTag,
     displayName: displayName(player),
     sandwichesFed: player.sandwichesFed,
-    sandwichesRemaining: sandwichesRemainingInPack(
-      player.sandwichesFed,
-      player.packsOpened,
-    ),
+    sandwichesRemaining: player.packTreatsRemaining,
     scoreVersion: player.scoreVersion,
   };
 }
@@ -180,11 +187,14 @@ async function createPlayer(
           nickname: null,
           publicTag: randomPublicTag(),
           sandwichesFed: 0,
+          sandwichesThrown: 0,
           packsOpened: 1,
+          packTreatsRemaining: SANDWICHES_PER_PACK,
           scoreVersion: 0,
           currentImageId: current.id,
           nextImageId: next.id,
           lastAcceptedAtMs: null,
+          lastThrowAtMs: null,
           leaderboardVisible: true,
           createdAtMs: nowMs,
           updatedAtMs: nowMs,
@@ -409,7 +419,7 @@ function tooFastError(waitMs: number): ApiError {
 export async function feedPlayer(
   request: Request,
   payload: Record<string, unknown>,
-): Promise<GameStateResponse> {
+): Promise<FeedResponse> {
   const feed = parseFeedRequest(payload);
   await ensureGameSchema();
   const db = getDb();
@@ -421,12 +431,7 @@ export async function feedPlayer(
       "Choose a nickname before feeding your first sandwich.",
     );
   }
-  if (
-    sandwichesRemainingInPack(
-      session.player.sandwichesFed,
-      session.player.packsOpened,
-    ) === 0
-  ) {
+  if (session.player.packTreatsRemaining === 0) {
     throw new ApiError(
       409,
       "PACK_EMPTY",
@@ -466,25 +471,33 @@ export async function feedPlayer(
       { retryable: true },
     );
   }
-  if (!isPointInsideMouth(feed.x, feed.y, portrait.mouth)) {
-    throw new ApiError(422, "MISSED_MOUTH", "That click missed the mouth target.");
-  }
+  const outcome = isPointInsideMouth(feed.x, feed.y, portrait.mouth)
+    ? "hit"
+    : "miss";
 
   const nowMs = Date.now();
-  const waitMs = feedWaitMs(session.player.lastAcceptedAtMs, nowMs);
+  const waitMs = feedWaitMs(session.player.lastThrowAtMs, nowMs);
   if (waitMs > 0) {
     throw tooFastError(waitMs);
   }
 
-  const following = pickFollowingPortrait(session.player);
+  const following =
+    outcome === "hit" ? pickFollowingPortrait(session.player) : null;
   const [updated] = await db
     .update(players)
     .set({
-      sandwichesFed: sql`${players.sandwichesFed} + 1`,
+      sandwichesThrown: sql`${players.sandwichesThrown} + 1`,
+      packTreatsRemaining: sql`${players.packTreatsRemaining} - 1`,
+      ...(outcome === "hit"
+        ? {
+            sandwichesFed: sql`${players.sandwichesFed} + 1`,
+            currentImageId: session.player.nextImageId,
+            nextImageId: following!.id,
+            lastAcceptedAtMs: nowMs,
+          }
+        : {}),
       scoreVersion: sql`${players.scoreVersion} + 1`,
-      currentImageId: session.player.nextImageId,
-      nextImageId: following.id,
-      lastAcceptedAtMs: nowMs,
+      lastThrowAtMs: nowMs,
       updatedAtMs: nowMs,
     })
     .where(
@@ -493,10 +506,10 @@ export async function feedPlayer(
         eq(players.sessionTokenHash, session.tokenHash),
         eq(players.scoreVersion, verification.claims.scoreVersion),
         eq(players.currentImageId, verification.claims.portraitId),
-        sql`${players.sandwichesFed} < ${players.packsOpened} * ${SANDWICHES_PER_PACK}`,
+        sql`${players.packTreatsRemaining} > 0`,
         or(
-          isNull(players.lastAcceptedAtMs),
-          lte(players.lastAcceptedAtMs, nowMs - MIN_FEED_INTERVAL_MS),
+          isNull(players.lastThrowAtMs),
+          lte(players.lastThrowAtMs, nowMs - MIN_FEED_INTERVAL_MS),
         ),
       ),
     )
@@ -519,16 +532,14 @@ export async function feedPlayer(
         retryable: true,
       });
     }
-    if (
-      sandwichesRemainingInPack(latest.sandwichesFed, latest.packsOpened) === 0
-    ) {
+    if (latest.packTreatsRemaining === 0) {
       throw new ApiError(
         409,
         "PACK_EMPTY",
         "Open a new FatBoy pack before feeding another sandwich.",
       );
     }
-    const latestWaitMs = feedWaitMs(latest.lastAcceptedAtMs, Date.now());
+    const latestWaitMs = feedWaitMs(latest.lastThrowAtMs, Date.now());
     if (
       latest.scoreVersion === verification.claims.scoreVersion &&
       latest.currentImageId === verification.claims.portraitId &&
@@ -539,35 +550,122 @@ export async function feedPlayer(
     throw new ApiError(
       409,
       "ROUND_STALE",
-      "That round was already scored or replaced. Reload the current game state.",
+      "That sandwich was already used or the round changed. Reload the current game state.",
       { retryable: true },
     );
   }
 
-  return buildGameState(updated, nowMs);
+  return {
+    ...(await buildGameState(updated, nowMs)),
+    outcome,
+  };
 }
 
-function parseOpenPackRequest(payload: Record<string, unknown>): number {
-  assertOnlyKeys(payload, new Set(["expectedScoreVersion"]));
-  if (
-    typeof payload.expectedScoreVersion !== "number" ||
-    !Number.isSafeInteger(payload.expectedScoreVersion) ||
-    payload.expectedScoreVersion < 0
-  ) {
-    throw new ApiError(
-      400,
-      "INVALID_SCORE_VERSION",
-      "The expected score version must be a non-negative integer.",
+type ParsedPackReloadRequest =
+  | { action: "start"; expectedScoreVersion: number }
+  | { action: "complete"; reloadToken: string };
+
+function parsePackReloadRequest(
+  payload: Record<string, unknown>,
+): ParsedPackReloadRequest {
+  if (payload.action === "start") {
+    assertOnlyKeys(payload, new Set(["action", "expectedScoreVersion"]));
+    if (
+      typeof payload.expectedScoreVersion !== "number" ||
+      !Number.isSafeInteger(payload.expectedScoreVersion) ||
+      payload.expectedScoreVersion < 0
+    ) {
+      throw new ApiError(
+        400,
+        "INVALID_SCORE_VERSION",
+        "The expected score version must be a non-negative integer.",
+      );
+    }
+    return {
+      action: "start",
+      expectedScoreVersion: payload.expectedScoreVersion,
+    };
+  }
+
+  if (payload.action === "complete") {
+    assertOnlyKeys(payload, new Set(["action", "reloadToken"]));
+    if (
+      typeof payload.reloadToken !== "string" ||
+      payload.reloadToken.length === 0 ||
+      payload.reloadToken.length > 1_024
+    ) {
+      throw new ApiError(
+        400,
+        "INVALID_RELOAD_TOKEN",
+        "The reload token is invalid.",
+      );
+    }
+    return { action: "complete", reloadToken: payload.reloadToken };
+  }
+
+  throw new ApiError(
+    400,
+    "INVALID_PACK_ACTION",
+    "The pack action must be either start or complete.",
+  );
+}
+
+function packStaleError(message: string): ApiError {
+  return new ApiError(409, "PACK_STALE", message, { retryable: true });
+}
+
+function reloadTokenError(
+  reason: "malformed" | "invalid-signature" | "expired",
+): ApiError {
+  if (reason === "expired") {
+    return new ApiError(
+      409,
+      "RELOAD_EXPIRED",
+      "That reload expired. Start a new reload and try again.",
+      { retryable: true },
     );
   }
-  return payload.expectedScoreVersion;
+  return new ApiError(
+    400,
+    "INVALID_RELOAD_TOKEN",
+    "The reload token is invalid.",
+  );
+}
+
+function reloadAlreadyCompleted(
+  player: PlayerRow,
+  claims: PackReloadTokenClaims,
+): boolean {
+  return (
+    player.scoreVersion === claims.scoreVersion + 1 &&
+    player.packsOpened === claims.packsOpened + 1 &&
+    player.packTreatsRemaining > 0
+  );
+}
+
+function reloadTooEarlyError(elapsedMs: number): ApiError {
+  const nextAllowedAtMs =
+    elapsedMs < ACTIVE_RELOAD_START_MS
+      ? ACTIVE_RELOAD_START_MS
+      : PACK_RELOAD_DURATION_MS;
+  return new ApiError(
+    425,
+    "RELOAD_TOO_EARLY",
+    "The pack is still reloading.",
+    {
+      retryable: true,
+      details: {
+        retryAfterMs: Math.max(1, Math.ceil(nextAllowedAtMs - elapsedMs)),
+      },
+    },
+  );
 }
 
 export async function openNextPack(
   request: Request,
   payload: Record<string, unknown>,
-): Promise<GameStateResponse> {
-  const expectedScoreVersion = parseOpenPackRequest(payload);
+): Promise<PackReloadResponse> {
+  const packRequest = parsePackReloadRequest(payload);
   await ensureGameSchema();
   const db = getDb();
   const session = await requireSessionPlayer(db, request);
@@ -579,37 +677,92 @@ export async function openNextPack(
     );
   }
 
-  const remaining = sandwichesRemainingInPack(
-    session.player.sandwichesFed,
-    session.player.packsOpened,
-  );
-  if (session.player.scoreVersion !== expectedScoreVersion) {
-    if (
-      session.player.scoreVersion === expectedScoreVersion + 1 &&
-      remaining > 0
-    ) {
-      return buildGameState(session.player);
+  if (packRequest.action === "start") {
+    if (session.player.scoreVersion !== packRequest.expectedScoreVersion) {
+      throw packStaleError(
+        "That pack has already changed. Reload the game and try again.",
+      );
     }
-    throw new ApiError(
-      409,
-      "PACK_STALE",
-      "That pack has already changed. Reload the game and try again.",
-      { retryable: true },
+    if (session.player.packTreatsRemaining > 0) {
+      throw new ApiError(
+        409,
+        "PACK_NOT_EMPTY",
+        "Finish the current pack before opening another one.",
+      );
+    }
+
+    const startedAtMs = Date.now();
+    const token = await signPackReloadToken(
+      {
+        kind: "pack-reload",
+        playerId: session.player.id,
+        scoreVersion: session.player.scoreVersion,
+        packsOpened: session.player.packsOpened,
+        startedAtMs,
+        expiresAtMs: startedAtMs + PACK_RELOAD_TOKEN_TTL_MS,
+      },
+      getRoundTokenSecret(),
     );
-  }
-  if (remaining > 0) {
-    throw new ApiError(
-      409,
-      "PACK_NOT_EMPTY",
-      "Finish the current six-pack before opening another one.",
-    );
+    return {
+      reload: {
+        token,
+        durationMs: PACK_RELOAD_DURATION_MS,
+        activeStartMs: ACTIVE_RELOAD_START_MS,
+        activeEndMs: ACTIVE_RELOAD_END_MS,
+      },
+    };
   }
 
   const nowMs = Date.now();
+  const verification = await verifyPackReloadToken(
+    packRequest.reloadToken,
+    getRoundTokenSecret(),
+    nowMs,
+  );
+  if (!verification.ok) {
+    throw reloadTokenError(verification.reason);
+  }
+  const { claims } = verification;
+  if (claims.playerId !== session.player.id) {
+    throw new ApiError(
+      400,
+      "INVALID_RELOAD_TOKEN",
+      "The reload token is invalid.",
+    );
+  }
+
+  if (reloadAlreadyCompleted(session.player, claims)) {
+    return buildGameState(session.player, nowMs);
+  }
+  if (
+    session.player.scoreVersion !== claims.scoreVersion ||
+    session.player.packsOpened !== claims.packsOpened
+  ) {
+    throw packStaleError(
+      "That pack changed before it could be opened. Reload the game and try again.",
+    );
+  }
+  if (session.player.packTreatsRemaining > 0) {
+    throw new ApiError(
+      409,
+      "PACK_NOT_EMPTY",
+      "Finish the current pack before opening another one.",
+    );
+  }
+
+  const elapsedMs = nowMs - claims.startedAtMs;
+  const timing = classifyPackReload(elapsedMs);
+  if (timing === "waiting") {
+    throw reloadTooEarlyError(elapsedMs);
+  }
+  const treats =
+    timing === "perfect" ? MAX_TREATS_PER_PACK : SANDWICHES_PER_PACK;
+
   const [updated] = await db
     .update(players)
     .set({
       packsOpened: sql`${players.packsOpened} + 1`,
+      packTreatsRemaining: treats,
       scoreVersion: sql`${players.scoreVersion} + 1`,
       updatedAtMs: nowMs,
     })
@@ -617,9 +770,9 @@ export async function openNextPack(
       and(
         eq(players.id, session.player.id),
         eq(players.sessionTokenHash, session.tokenHash),
-        eq(players.packsOpened, session.player.packsOpened),
-        eq(players.scoreVersion, expectedScoreVersion),
-        sql`${players.sandwichesFed} = ${players.packsOpened} * ${SANDWICHES_PER_PACK}`,
+        eq(players.packsOpened, claims.packsOpened),
+        eq(players.scoreVersion, claims.scoreVersion),
+        eq(players.packTreatsRemaining, 0),
       ),
     )
     .returning();
@@ -644,20 +797,12 @@ export async function openNextPack(
     });
   }
 
-  // Treat a concurrent pack-open request as success so a double click or a
-  // second tab cannot open two packs or leave the UI in an error state.
-  if (
-    latest.scoreVersion === expectedScoreVersion + 1 &&
-    sandwichesRemainingInPack(latest.sandwichesFed, latest.packsOpened) > 0
-  ) {
+  if (reloadAlreadyCompleted(latest, claims)) {
     return buildGameState(latest, nowMs);
   }
 
-  throw new ApiError(
-    409,
-    "PACK_STALE",
+  throw packStaleError(
     "That pack changed before it could be opened. Reload the game and try again.",
-    { retryable: true },
   );
 }
 

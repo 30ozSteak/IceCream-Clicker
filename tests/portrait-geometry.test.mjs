@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   calculateCoverGeometry,
   normalizedImagePointToStage,
+  stagePointToNormalizedImage,
 } from "../lib/client/portrait-geometry.ts";
 
 function closeTo(actual, expected, epsilon = 0.000_001) {
@@ -52,4 +53,21 @@ test("portrait cover geometry handles horizontal cropping and invalid inputs", (
     y: 400,
   });
   assert.throws(() => calculateCoverGeometry(0, 800, 1_200, 800), RangeError);
+});
+
+test("stage clicks map back to clamped portrait coordinates", () => {
+  const geometry = calculateCoverGeometry(1_000, 600, 800, 1_200);
+
+  assert.deepEqual(stagePointToNormalizedImage(geometry, 500, 300), {
+    x: 0.5,
+    y: 0.5,
+  });
+  assert.deepEqual(stagePointToNormalizedImage(geometry, -20, -500), {
+    x: 0,
+    y: 0,
+  });
+  assert.deepEqual(stagePointToNormalizedImage(geometry, 1_020, 1_100), {
+    x: 1,
+    y: 1,
+  });
 });

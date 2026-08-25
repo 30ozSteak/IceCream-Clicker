@@ -3,25 +3,31 @@ import type { RoundTokenClaims } from "../game-types";
 
 export const MIN_FEED_INTERVAL_MS = 200;
 export const SANDWICHES_PER_PACK = 6;
+export const ACTIVE_RELOAD_BONUS_TREATS = 1;
+export const MAX_TREATS_PER_PACK =
+  SANDWICHES_PER_PACK + ACTIVE_RELOAD_BONUS_TREATS;
+export const PACK_RELOAD_DURATION_MS = 2_400;
+export const ACTIVE_RELOAD_START_MS = 1_320;
+export const ACTIVE_RELOAD_END_MS = 1_800;
+export const ACTIVE_RELOAD_END_GRACE_MS = 300;
 
-export function sandwichesRemainingInPack(
-  sandwichesFed: number,
-  packsOpened: number,
-): number {
-  if (
-    !Number.isSafeInteger(sandwichesFed) ||
-    sandwichesFed < 0 ||
-    !Number.isSafeInteger(packsOpened) ||
-    packsOpened < 1
-  ) {
-    throw new Error("The stored sandwich pack state is invalid.");
+export type PackReloadTiming = "waiting" | "perfect" | "standard";
+
+export function classifyPackReload(elapsedMs: number): PackReloadTiming {
+  if (!Number.isFinite(elapsedMs)) {
+    throw new Error("Reload timing must be a finite number.");
   }
 
-  const remaining = packsOpened * SANDWICHES_PER_PACK - sandwichesFed;
-  if (remaining < 0 || remaining > SANDWICHES_PER_PACK) {
-    throw new Error("The stored sandwich pack state is outside the active pack.");
+  if (elapsedMs < ACTIVE_RELOAD_START_MS) {
+    return "waiting";
   }
-  return remaining;
+  if (elapsedMs <= ACTIVE_RELOAD_END_MS + ACTIVE_RELOAD_END_GRACE_MS) {
+    return "perfect";
+  }
+  if (elapsedMs < PACK_RELOAD_DURATION_MS) {
+    return "waiting";
+  }
+  return "standard";
 }
 
 export function isNormalizedCoordinate(value: unknown): value is number {

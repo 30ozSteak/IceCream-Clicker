@@ -2,8 +2,15 @@ import { env } from "cloudflare:workers";
 import { drizzle } from "drizzle-orm/d1";
 import * as schema from "./schema";
 import {
+  ADD_LAST_THROW_AT_COLUMN_SQL,
+  ADD_PACK_TREATS_REMAINING_COLUMN_SQL,
   ADD_PACKS_OPENED_COLUMN_SQL,
+  ADD_SANDWICHES_THROWN_COLUMN_SQL,
+  BACKFILL_LAST_THROW_AT_SQL,
   BACKFILL_PACKS_OPENED_SQL,
+  BACKFILL_PACK_TREATS_REMAINING_SQL,
+  BACKFILL_SANDWICHES_THROWN_SQL,
+  REBUILD_PLAYERS_FOR_PACK_RELOAD_SQL,
 } from "./schema-maintenance";
 
 const GAME_SCHEMA_STATEMENTS = [
@@ -13,18 +20,21 @@ const GAME_SCHEMA_STATEMENTS = [
     nickname TEXT,
     public_tag TEXT NOT NULL,
     sandwiches_fed INTEGER NOT NULL DEFAULT 0 CHECK (sandwiches_fed >= 0),
+    sandwiches_thrown INTEGER NOT NULL DEFAULT 0 CHECK (sandwiches_thrown >= 0),
     packs_opened INTEGER NOT NULL DEFAULT 1 CHECK (packs_opened >= 1),
+    pack_treats_remaining INTEGER NOT NULL DEFAULT 6
+      CHECK (pack_treats_remaining BETWEEN 0 AND 7),
     score_version INTEGER NOT NULL DEFAULT 0 CHECK (score_version >= 0),
     current_image_id TEXT NOT NULL,
     next_image_id TEXT NOT NULL,
     last_accepted_at_ms INTEGER,
+    last_throw_at_ms INTEGER,
     leaderboard_visible INTEGER NOT NULL DEFAULT 1,
     created_at_ms INTEGER NOT NULL,
     updated_at_ms INTEGER NOT NULL,
     CONSTRAINT players_public_tag_length CHECK (length(public_tag) = 4),
-    CONSTRAINT players_active_pack_window CHECK (
-      sandwiches_fed >= (packs_opened - 1) * 6
-      AND sandwiches_fed <= packs_opened * 6
+    CONSTRAINT players_score_not_above_throws CHECK (
+      sandwiches_fed <= sandwiches_thrown
     ),
     CONSTRAINT players_distinct_images CHECK (current_image_id <> next_image_id),
     CONSTRAINT players_leaderboard_visible_boolean CHECK (leaderboard_visible IN (0, 1))
@@ -63,10 +73,21 @@ async function playerColumnNames(d1: D1Database): Promise<Set<string>> {
   return new Set(result.results.map((column) => column.name));
 }
 
-async function ensurePackStateSchema(d1: D1Database): Promise<void> {
-  const columns = await playerColumnNames(d1);
+async function playerTableDefinition(d1: D1Database): Promise<string> {
+  const row = await d1
+    .prepare(
+      "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'players'",
+    )
+    .first<{ sql: string }>();
+  return row?.sql ?? "";
+}
+
+async function ensurePackStateSchema(
+  d1: D1Database,
+  columns: Set<string>,
+): Promise<Set<string>> {
   if (columns.has("packs_opened")) {
-    return;
+    return columns;
   }
 
   try {
@@ -81,7 +102,110 @@ async function ensurePackStateSchema(d1: D1Database): Promise<void> {
   }
 
   await d1.prepare(BACKFILL_PACKS_OPENED_SQL).run();
-  console.info(JSON.stringify({ message: "game_schema_upgraded", column: "packs_opened" }));
+  console.info(
+    JSON.stringify({ message: "game_schema_upgraded", column: "packs_opened" }),
+  );
+  return playerColumnNames(d1);
+}
+
+async function ensureThrowStateSchema(
+  d1: D1Database,
+  initialColumns: Set<string>,
+): Promise<Set<string>> {
+  let columns = initialColumns;
+  let upgraded = false;
+
+  if (!columns.has("sandwiches_thrown")) {
+    try {
+      await d1.prepare(ADD_SANDWICHES_THROWN_COLUMN_SQL).run();
+    } catch (error) {
+      const refreshedColumns = await playerColumnNames(d1);
+      if (!refreshedColumns.has("sandwiches_thrown")) {
+        throw error;
+      }
+    }
+    await d1.prepare(BACKFILL_SANDWICHES_THROWN_SQL).run();
+    columns = await playerColumnNames(d1);
+    upgraded = true;
+  }
+
+  if (!columns.has("last_throw_at_ms")) {
+    try {
+      await d1.prepare(ADD_LAST_THROW_AT_COLUMN_SQL).run();
+    } catch (error) {
+      const refreshedColumns = await playerColumnNames(d1);
+      if (!refreshedColumns.has("last_throw_at_ms")) {
+        throw error;
+      }
+    }
+    await d1.prepare(BACKFILL_LAST_THROW_AT_SQL).run();
+    columns = await playerColumnNames(d1);
+    upgraded = true;
+  }
+
+  if (upgraded) {
+    console.info(
+      JSON.stringify({ message: "game_schema_upgraded", column: "throw_state" }),
+    );
+  }
+  return columns;
+}
+
+async function ensurePackReloadStateSchema(
+  d1: D1Database,
+  columns: Set<string>,
+): Promise<void> {
+  let addedColumn = false;
+  if (!columns.has("pack_treats_remaining")) {
+    try {
+      await d1.prepare(ADD_PACK_TREATS_REMAINING_COLUMN_SQL).run();
+    } catch (error) {
+      const refreshedColumns = await playerColumnNames(d1);
+      if (!refreshedColumns.has("pack_treats_remaining")) {
+        throw error;
+      }
+    }
+    await d1.prepare(BACKFILL_PACK_TREATS_REMAINING_SQL).run();
+    addedColumn = true;
+  }
+
+  const definition = await playerTableDefinition(d1);
+  const needsRebuild =
+    addedColumn ||
+    definition.includes("players_active_pack_window") ||
+    !definition.includes("players_score_not_above_throws");
+  if (!needsRebuild) {
+    return;
+  }
+
+  // The column can become visible to a concurrent request before the request
+  // that added it reaches its backfill. Repeating this legacy-only calculation
+  // before removing the old constraint makes an interrupted upgrade resumable.
+  await d1.prepare(BACKFILL_PACK_TREATS_REMAINING_SQL).run();
+
+  try {
+    await d1.batch(
+      REBUILD_PLAYERS_FOR_PACK_RELOAD_SQL.map((statement) =>
+        d1.prepare(statement),
+      ),
+    );
+  } catch (error) {
+    // Another request may complete this transactional rebuild after our schema
+    // inspection. Suppress only a race that left the full replacement schema.
+    const refreshedDefinition = await playerTableDefinition(d1);
+    const refreshedColumns = await playerColumnNames(d1);
+    if (
+      refreshedDefinition.includes("players_active_pack_window") ||
+      !refreshedDefinition.includes("players_score_not_above_throws") ||
+      !refreshedColumns.has("pack_treats_remaining")
+    ) {
+      throw error;
+    }
+  }
+
+  console.info(
+    JSON.stringify({ message: "game_schema_upgraded", feature: "pack_reload" }),
+  );
 }
 
 /**
@@ -95,5 +219,8 @@ export async function ensureGameSchema(): Promise<void> {
   await d1.batch(
     GAME_SCHEMA_STATEMENTS.map((statement) => d1.prepare(statement)),
   );
-  await ensurePackStateSchema(d1);
+  let columns = await playerColumnNames(d1);
+  columns = await ensurePackStateSchema(d1, columns);
+  columns = await ensureThrowStateSchema(d1, columns);
+  await ensurePackReloadStateSchema(d1, columns);
 }

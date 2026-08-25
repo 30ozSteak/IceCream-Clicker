@@ -44,3 +44,14 @@ export function normalizedImagePointToStage(
     y: geometry.offsetY + y * geometry.renderedHeight,
   };
 }
+
+export function stagePointToNormalizedImage(
+  geometry: CoverGeometry,
+  x: number,
+  y: number,
+): { x: number; y: number } {
+  return {
+    x: Math.min(1, Math.max(0, (x - geometry.offsetX) / geometry.renderedWidth)),
+    y: Math.min(1, Math.max(0, (y - geometry.offsetY) / geometry.renderedHeight)),
+  };
+}

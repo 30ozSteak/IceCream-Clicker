@@ -19,6 +19,7 @@ import {
   calculateCoverGeometry,
   type CoverGeometry,
   normalizedImagePointToStage,
+  stagePointToNormalizedImage,
 } from "../lib/client/portrait-geometry";
 
 const FatboyProjectile = dynamic(
@@ -91,6 +92,34 @@ type ApiGameResponse = {
       };
 };
 
+type FeedOutcome = "hit" | "miss";
+
+type ApiFeedResponse = ApiGameResponse & {
+  outcome: FeedOutcome;
+};
+
+type ApiPackReloadStartResponse = {
+  reload: {
+    token: string;
+    durationMs: number;
+    activeStartMs: number;
+    activeEndMs: number;
+  };
+};
+
+type ReloadAttempt = "none" | "missed" | "perfect";
+
+type ReloadSession = ApiPackReloadStartResponse["reload"] & {
+  startedAt: number;
+  autoCompleteAtMs: number;
+};
+
+type ActiveReloadStyle = CSSProperties & {
+  "--reload-progress": string;
+  "--reload-zone-start": string;
+  "--reload-zone-width": string;
+};
+
 type ApiLeaderboardResponse = {
   leaders: Array<{
     rank?: number;
@@ -108,6 +137,12 @@ type ApiLeaderboardResponse = {
 type Notice = {
   message: string;
   tone: "info" | "success" | "miss" | "error";
+};
+
+type SandwichSplat = {
+  id: number;
+  x: number;
+  y: number;
 };
 
 const numberFormatter = new Intl.NumberFormat("en-US");
@@ -186,6 +221,57 @@ function normalizeGameResponse(data: ApiGameResponse): GameResponse {
       token: data.round.roundToken,
     },
   };
+}
+
+function normalizeFeedResponse(data: ApiFeedResponse): {
+  game: GameResponse;
+  outcome: FeedOutcome;
+} {
+  if (data.outcome !== "hit" && data.outcome !== "miss") {
+    throw new Error("The throw response did not include a valid outcome.");
+  }
+
+  return {
+    game: normalizeGameResponse(data),
+    outcome: data.outcome,
+  };
+}
+
+function createReloadSession(
+  data: ApiPackReloadStartResponse,
+  requestStartedAt: number,
+  responseReceivedAt: number,
+): ReloadSession {
+  const { reload } = data;
+  if (
+    !reload ||
+    typeof reload.token !== "string" ||
+    reload.token.length === 0 ||
+    !Number.isFinite(reload.durationMs) ||
+    reload.durationMs <= 0 ||
+    !Number.isFinite(reload.activeStartMs) ||
+    reload.activeStartMs < 0 ||
+    !Number.isFinite(reload.activeEndMs) ||
+    reload.activeEndMs <= reload.activeStartMs ||
+    reload.activeEndMs > reload.durationMs
+  ) {
+    throw new Error("The reload response did not include valid timing data.");
+  }
+
+  const roundTripMs = Math.max(0, responseReceivedAt - requestStartedAt);
+  const estimatedElapsedMs = Math.min(reload.durationMs, roundTripMs / 2);
+  return {
+    ...reload,
+    startedAt: responseReceivedAt - estimatedElapsedMs,
+    autoCompleteAtMs: reload.durationMs,
+  };
+}
+
+function getReloadSuccessMessage(treats: number) {
+  if (treats === 7) {
+    return "Perfect reload! Bonus treat added — seven ready.";
+  }
+  return `Fresh pack opened. ${numberFormatter.format(treats)} treats ready!`;
 }
 
 function normalizeLeaderboardResponse(
@@ -392,7 +478,11 @@ export function GameClient() {
   const [offline, setOffline] = useState(false);
   const [streak, setStreak] = useState(0);
   const [isFeeding, setIsFeeding] = useState(false);
-  const [isOpeningPack, setIsOpeningPack] = useState(false);
+  const [isStartingReload, setIsStartingReload] = useState(false);
+  const [isCompletingReload, setIsCompletingReload] = useState(false);
+  const [reloadSession, setReloadSession] = useState<ReloadSession | null>(null);
+  const [reloadElapsedMs, setReloadElapsedMs] = useState(0);
+  const [reloadAttempt, setReloadAttempt] = useState<ReloadAttempt>("none");
   const [threeProjectileReady, setThreeProjectileReady] = useState(false);
   const [shotUsesThree, setShotUsesThree] = useState(false);
   const [geometry, setGeometry] = useState<CoverGeometry | null>(null);
@@ -400,6 +490,7 @@ export function GameClient() {
     x: number;
     y: number;
   } | null>(null);
+  const [sandwichSplat, setSandwichSplat] = useState<SandwichSplat | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [announcement, setAnnouncement] = useState("");
   const [nicknameInput, setNicknameInput] = useState("");
@@ -410,8 +501,34 @@ export function GameClient() {
   const portraitImageRef = useRef<HTMLImageElement>(null);
   const feedLockRef = useRef(false);
   const packLockRef = useRef(false);
+  const reloadSessionRef = useRef<ReloadSession | null>(null);
+  const reloadAttemptRef = useRef<ReloadAttempt>("none");
+  const reloadFrameRef = useRef<number | null>(null);
+  const reloadGenerationRef = useRef(0);
+  const splatIdRef = useRef(0);
   const noticeTimerRef = useRef<number | null>(null);
   const reducedMotion = useReducedMotion();
+  const isOpeningPack = isStartingReload || isCompletingReload;
+
+  const cancelReloadWork = useCallback(() => {
+    reloadGenerationRef.current += 1;
+    if (reloadFrameRef.current !== null) {
+      window.cancelAnimationFrame(reloadFrameRef.current);
+      reloadFrameRef.current = null;
+    }
+    reloadSessionRef.current = null;
+    reloadAttemptRef.current = "none";
+    packLockRef.current = false;
+  }, []);
+
+  const resetReloadState = useCallback(() => {
+    cancelReloadWork();
+    setReloadSession(null);
+    setReloadElapsedMs(0);
+    setReloadAttempt("none");
+    setIsStartingReload(false);
+    setIsCompletingReload(false);
+  }, [cancelReloadWork]);
 
   const showNotice = useCallback((message: string, tone: Notice["tone"]) => {
     if (noticeTimerRef.current !== null) {
@@ -433,6 +550,7 @@ export function GameClient() {
   }, []);
 
   const loadEverything = useCallback(async () => {
+    resetReloadState();
     setLoading(true);
     setBootstrapError(null);
     setLeaderboardLoading(true);
@@ -459,7 +577,7 @@ export function GameClient() {
     }
 
     setOffline(!window.navigator.onLine);
-  }, [applyLeaderboard]);
+  }, [applyLeaderboard, resetReloadState]);
 
   const refreshLeaderboard = useCallback(async () => {
     const data = await fetchLeaderboard();
@@ -504,6 +622,7 @@ export function GameClient() {
 
   useEffect(() => {
     const handleOnline = () => {
+      resetReloadState();
       setOffline(false);
       showNotice("Back online. Your game is synced.", "success");
       void Promise.allSettled([
@@ -515,6 +634,7 @@ export function GameClient() {
       ]);
     };
     const handleOffline = () => {
+      resetReloadState();
       setOffline(true);
       showNotice("You’re offline. Reconnect to keep feeding.", "error");
     };
@@ -526,7 +646,7 @@ export function GameClient() {
       window.removeEventListener("online", handleOnline);
       window.removeEventListener("offline", handleOffline);
     };
-  }, [refreshLeaderboard, showNotice]);
+  }, [refreshLeaderboard, resetReloadState, showNotice]);
 
   useEffect(() => {
     const nextPortrait = game?.round.next;
@@ -559,11 +679,28 @@ export function GameClient() {
 
   useEffect(() => {
     return () => {
+      cancelReloadWork();
       if (noticeTimerRef.current !== null) {
         window.clearTimeout(noticeTimerRef.current);
       }
     };
-  }, []);
+  }, [cancelReloadWork]);
+
+  useEffect(() => {
+    if (!sandwichSplat) {
+      return;
+    }
+
+    const splatTimer = window.setTimeout(
+      () => {
+        setSandwichSplat((current) =>
+          current?.id === sandwichSplat.id ? null : current,
+        );
+      },
+      reducedMotion ? 650 : 1_150,
+    );
+    return () => window.clearTimeout(splatTimer);
+  }, [reducedMotion, sandwichSplat]);
 
   useEffect(() => {
     const handleEscape = (event: KeyboardEvent) => {
@@ -604,16 +741,9 @@ export function GameClient() {
     };
   }, [displayPortrait, geometry]);
 
-  const handleMiss = () => {
-    if (game?.player.sandwichesRemaining === 0 || isOpeningPack) {
-      return;
-    }
-    setStreak(0);
-    showNotice("Miss. Click the mouth.", "miss");
-  };
-
   const resyncAfterFeedError = useCallback(
     async (fallbackGame: GameResponse) => {
+      resetReloadState();
       const [gameResult, leaderboardResult] = await Promise.allSettled([
         fetchGame(),
         fetchLeaderboard(),
@@ -631,8 +761,105 @@ export function GameClient() {
         applyLeaderboard(leaderboardResult.value);
       }
     },
-    [applyLeaderboard],
+    [applyLeaderboard, resetReloadState],
   );
+
+  const handleMiss = async (event: ReactMouseEvent<HTMLElement>) => {
+    if (
+      !game ||
+      !displayPortrait ||
+      !("mouth" in displayPortrait) ||
+      game.player.sandwichesRemaining === 0 ||
+      feedLockRef.current ||
+      isOpeningPack ||
+      offline
+    ) {
+      return;
+    }
+
+    const stageBounds = event.currentTarget.getBoundingClientRect();
+    if (stageBounds.width <= 0 || stageBounds.height <= 0) {
+      return;
+    }
+
+    const target = {
+      x: Math.min(stageBounds.width, Math.max(0, event.clientX - stageBounds.left)),
+      y: Math.min(stageBounds.height, Math.max(0, event.clientY - stageBounds.top)),
+    };
+    const clickPoint = geometry
+      ? stagePointToNormalizedImage(geometry, target.x, target.y)
+      : {
+          x: target.x / stageBounds.width,
+          y: target.y / stageBounds.height,
+        };
+
+    feedLockRef.current = true;
+    setIsFeeding(true);
+    setShotUsesThree(threeProjectileReady);
+
+    const snapshot = game;
+    const previousStreak = streak;
+    const clickedPortrait = displayPortrait;
+
+    setSandwichSplat(null);
+    setSandwichTarget(target);
+    setGame({
+      ...snapshot,
+      player: {
+        ...snapshot.player,
+        sandwichesRemaining: Math.max(
+          0,
+          snapshot.player.sandwichesRemaining - 1,
+        ),
+      },
+    });
+    setStreak(0);
+    setAnnouncement("FatBoy tossed toward the portrait.");
+
+    const missRequest = requestJson<ApiFeedResponse>("/api/feed", {
+      method: "POST",
+      body: JSON.stringify({
+        roundToken: snapshot.round.token,
+        portraitId: clickedPortrait.id,
+        x: clickPoint.x,
+        y: clickPoint.y,
+      }),
+    }).then(
+      (data) => {
+        try {
+          return { ok: true as const, data: normalizeFeedResponse(data) };
+        } catch (error) {
+          return { ok: false as const, error };
+        }
+      },
+      (error: unknown) => ({ ok: false as const, error }),
+    );
+
+    await delay(reducedMotion ? 40 : 210);
+    setSandwichTarget(null);
+    splatIdRef.current += 1;
+    setSandwichSplat({ ...target, id: splatIdRef.current });
+
+    const result = await missRequest;
+    if (result.ok && result.data.outcome === "miss") {
+      setGame(result.data.game);
+      setDisplayPortrait(result.data.game.round.current);
+      showNotice("Splat! Sandwich spent — no point.", "miss");
+    } else {
+      const error = result.ok
+        ? new Error("The server returned the wrong throw outcome.")
+        : result.error;
+      setSandwichSplat(null);
+      setGame(snapshot);
+      setDisplayPortrait(snapshot.round.current);
+      setStreak(previousStreak);
+      showNotice(getFriendlyError(error), "error");
+      await resyncAfterFeedError(snapshot);
+    }
+
+    setIsFeeding(false);
+    feedLockRef.current = false;
+  };
 
   const handleFeed = async (event: ReactMouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
@@ -678,6 +905,7 @@ export function GameClient() {
           y: stageHeight * clickedPortrait.mouth.cy,
         };
 
+    setSandwichSplat(null);
     setSandwichTarget(target);
     setGame({
       ...snapshot,
@@ -696,7 +924,7 @@ export function GameClient() {
       `FatBoy tossed. Your total is ${snapshot.player.sandwichesFed + 1}.`,
     );
 
-    const feedRequest = requestJson<ApiGameResponse>("/api/feed", {
+    const feedRequest = requestJson<ApiFeedResponse>("/api/feed", {
       method: "POST",
       body: JSON.stringify({
         roundToken: snapshot.round.token,
@@ -707,7 +935,11 @@ export function GameClient() {
     }).then(
       (data) => {
         try {
-          return { ok: true as const, data: normalizeGameResponse(data) };
+          const normalized = normalizeFeedResponse(data);
+          if (normalized.outcome !== "hit") {
+            throw new Error("The server returned the wrong throw outcome.");
+          }
+          return { ok: true as const, data: normalized.game };
         } catch (error) {
           return { ok: false as const, error };
         }
@@ -736,54 +968,264 @@ export function GameClient() {
     feedLockRef.current = false;
   };
 
-  const handleOpenPack = async (event: ReactMouseEvent<HTMLButtonElement>) => {
+  const finishPackReload = useCallback(
+    async (session: ReloadSession) => {
+      const currentSession = reloadSessionRef.current;
+      if (
+        !game ||
+        offline ||
+        packLockRef.current ||
+        currentSession?.token !== session.token
+      ) {
+        return;
+      }
+
+      const generation = reloadGenerationRef.current;
+      const snapshot = game;
+      packLockRef.current = true;
+      setIsCompletingReload(true);
+      if (reloadFrameRef.current !== null) {
+        window.cancelAnimationFrame(reloadFrameRef.current);
+        reloadFrameRef.current = null;
+      }
+
+      try {
+        const result = normalizeGameResponse(
+          await requestJson<ApiGameResponse>("/api/pack", {
+            method: "POST",
+            body: JSON.stringify({
+              action: "complete",
+              reloadToken: session.token,
+            }),
+          }),
+        );
+        if (reloadGenerationRef.current !== generation) {
+          return;
+        }
+
+        resetReloadState();
+        setGame(result);
+        setDisplayPortrait(result.round.current);
+        showNotice(
+          getReloadSuccessMessage(result.player.sandwichesRemaining),
+          "success",
+        );
+      } catch (error) {
+        if (reloadGenerationRef.current !== generation) {
+          return;
+        }
+
+        if (error instanceof ApiError && error.status === 425) {
+          const elapsedMs = Math.max(0, performance.now() - session.startedAt);
+          const retrySession = {
+            ...session,
+            autoCompleteAtMs: Math.max(
+              session.durationMs,
+              session.autoCompleteAtMs,
+              elapsedMs + 180,
+            ),
+          };
+          const attemptedPerfect = reloadAttemptRef.current === "perfect";
+          if (attemptedPerfect) {
+            reloadAttemptRef.current = "missed";
+            setReloadAttempt("missed");
+            setAnnouncement(
+              "Bonus timing missed. The pack will finish reloading normally.",
+            );
+          } else {
+            setAnnouncement("The pack needs another moment to finish reloading.");
+          }
+          reloadSessionRef.current = retrySession;
+          setReloadSession(retrySession);
+          setReloadElapsedMs(Math.min(elapsedMs, session.durationMs));
+          setIsCompletingReload(false);
+          packLockRef.current = false;
+          return;
+        }
+
+        try {
+          const synced = await fetchGame();
+          if (reloadGenerationRef.current !== generation) {
+            return;
+          }
+          resetReloadState();
+          setGame(synced);
+          setDisplayPortrait(synced.round.current);
+          if (synced.player.sandwichesRemaining > 0) {
+            showNotice(
+              getReloadSuccessMessage(synced.player.sandwichesRemaining),
+              "success",
+            );
+          } else {
+            showNotice(getFriendlyError(error), "error");
+          }
+        } catch {
+          if (reloadGenerationRef.current !== generation) {
+            return;
+          }
+          resetReloadState();
+          setGame(snapshot);
+          setDisplayPortrait(snapshot.round.current);
+          showNotice(getFriendlyError(error), "error");
+        }
+      }
+    },
+    [game, offline, resetReloadState, showNotice],
+  );
+
+  const startPackReload = useCallback(async () => {
+    if (
+      !game ||
+      game.player.sandwichesRemaining !== 0 ||
+      offline ||
+      packLockRef.current ||
+      reloadSessionRef.current
+    ) {
+      return;
+    }
+
+    const generation = reloadGenerationRef.current;
+    const requestStartedAt = performance.now();
+    packLockRef.current = true;
+    reloadAttemptRef.current = "none";
+    setReloadAttempt("none");
+    setReloadElapsedMs(0);
+    setIsStartingReload(true);
+    setAnnouncement("Starting pack reload.");
+
+    try {
+      const response = await requestJson<ApiPackReloadStartResponse>("/api/pack", {
+        method: "POST",
+        body: JSON.stringify({
+          action: "start",
+          expectedScoreVersion: game.player.scoreVersion,
+        }),
+      });
+      const responseReceivedAt = performance.now();
+      if (reloadGenerationRef.current !== generation) {
+        return;
+      }
+
+      const session = createReloadSession(
+        response,
+        requestStartedAt,
+        responseReceivedAt,
+      );
+      reloadSessionRef.current = session;
+      setReloadSession(session);
+      setReloadElapsedMs(
+        Math.min(session.durationMs, responseReceivedAt - session.startedAt),
+      );
+      setAnnouncement(
+        "Reload started. Activate the box again when the marker enters the striped bonus zone.",
+      );
+    } catch (error) {
+      if (reloadGenerationRef.current === generation) {
+        try {
+          const synced = await fetchGame();
+          if (reloadGenerationRef.current !== generation) {
+            return;
+          }
+          setGame(synced);
+          setDisplayPortrait(synced.round.current);
+          if (synced.player.sandwichesRemaining > 0) {
+            showNotice(
+              getReloadSuccessMessage(synced.player.sandwichesRemaining),
+              "success",
+            );
+          } else {
+            showNotice(getFriendlyError(error), "error");
+          }
+        } catch {
+          showNotice(getFriendlyError(error), "error");
+        }
+      }
+    } finally {
+      if (reloadGenerationRef.current === generation) {
+        setIsStartingReload(false);
+        packLockRef.current = false;
+      }
+    }
+  }, [game, offline, showNotice]);
+
+  useEffect(() => {
+    if (!reloadSession || isCompletingReload) {
+      return;
+    }
+
+    let lastPaintAt = Number.NEGATIVE_INFINITY;
+    const tick = (now: number) => {
+      if (reloadSessionRef.current?.token !== reloadSession.token) {
+        return;
+      }
+
+      const elapsedMs = Math.max(0, now - reloadSession.startedAt);
+      if (!reducedMotion || now - lastPaintAt >= 100) {
+        setReloadElapsedMs(Math.min(elapsedMs, reloadSession.durationMs));
+        lastPaintAt = now;
+      }
+
+      if (elapsedMs >= reloadSession.autoCompleteAtMs) {
+        setReloadElapsedMs(reloadSession.durationMs);
+        reloadFrameRef.current = null;
+        void finishPackReload(reloadSession);
+        return;
+      }
+
+      reloadFrameRef.current = window.requestAnimationFrame(tick);
+    };
+
+    reloadFrameRef.current = window.requestAnimationFrame(tick);
+    return () => {
+      if (reloadFrameRef.current !== null) {
+        window.cancelAnimationFrame(reloadFrameRef.current);
+        reloadFrameRef.current = null;
+      }
+    };
+  }, [finishPackReload, isCompletingReload, reducedMotion, reloadSession]);
+
+  const handleOpenPack = (event: ReactMouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
 
     if (
       !game ||
-      game.player.sandwichesRemaining > 0 ||
+      game.player.sandwichesRemaining !== 0 ||
       packLockRef.current ||
       offline
     ) {
       return;
     }
 
-    packLockRef.current = true;
-    setIsOpeningPack(true);
-    const snapshot = game;
-
-    try {
-      const result = normalizeGameResponse(
-        await requestJson<ApiGameResponse>("/api/pack", {
-          method: "POST",
-          body: JSON.stringify({
-            expectedScoreVersion: snapshot.player.scoreVersion,
-          }),
-        }),
-      );
-      setGame(result);
-      setDisplayPortrait(result.round.current);
-      showNotice("Fresh pack opened. Six sandwiches ready!", "success");
-    } catch (error) {
-      try {
-        const synced = await fetchGame();
-        setGame(synced);
-        setDisplayPortrait(synced.round.current);
-        if (synced.player.sandwichesRemaining > 0) {
-          showNotice("Fresh pack opened. Six sandwiches ready!", "success");
-        } else {
-          showNotice(getFriendlyError(error), "error");
-        }
-      } catch {
-        setGame(snapshot);
-        setDisplayPortrait(snapshot.round.current);
-        showNotice(getFriendlyError(error), "error");
-      }
-    } finally {
-      setIsOpeningPack(false);
-      packLockRef.current = false;
+    const session = reloadSessionRef.current;
+    if (!session) {
+      void startPackReload();
+      return;
     }
+    if (reloadAttemptRef.current !== "none") {
+      setAnnouncement(
+        "Your bonus timing attempt is already used. The pack will finish reloading automatically.",
+      );
+      return;
+    }
+
+    const elapsedMs = reducedMotion
+      ? reloadElapsedMs
+      : Math.max(0, performance.now() - session.startedAt);
+    setReloadElapsedMs(Math.min(elapsedMs, session.durationMs));
+    if (elapsedMs >= session.activeStartMs && elapsedMs <= session.activeEndMs) {
+      reloadAttemptRef.current = "perfect";
+      setReloadAttempt("perfect");
+      setAnnouncement("Perfect timing registered. Opening the bonus pack.");
+      void finishPackReload(session);
+      return;
+    }
+
+    reloadAttemptRef.current = "missed";
+    setReloadAttempt("missed");
+    setAnnouncement(
+      "Bonus timing missed. The pack will finish reloading normally.",
+    );
   };
 
   const submitNickname = async (event: FormEvent<HTMLFormElement>) => {
@@ -835,6 +1277,51 @@ export function GameClient() {
   const currentDisplayName = player?.displayName ?? null;
   const nicknameRequired = Boolean(!loading && game && !game.player.nickname);
   const packEmpty = player?.sandwichesRemaining === 0;
+  const reloadProgress = reloadSession
+    ? Math.min(100, Math.max(0, (reloadElapsedMs / reloadSession.durationMs) * 100))
+    : 0;
+  const reloadInActiveWindow = Boolean(
+    reloadSession &&
+      reloadAttempt === "none" &&
+      reloadElapsedMs >= reloadSession.activeStartMs &&
+      reloadElapsedMs <= reloadSession.activeEndMs,
+  );
+  const reloadMeterStyle: ActiveReloadStyle | undefined = reloadSession
+    ? {
+        "--reload-progress": `${reloadProgress}%`,
+        "--reload-zone-start": `${(reloadSession.activeStartMs / reloadSession.durationMs) * 100}%`,
+        "--reload-zone-width": `${((reloadSession.activeEndMs - reloadSession.activeStartMs) / reloadSession.durationMs) * 100}%`,
+      }
+    : undefined;
+  const reloadButtonLabel = isCompletingReload
+    ? reloadAttempt === "perfect"
+      ? "Perfect reload registered. Opening the bonus pack."
+      : "Opening the reloaded pack."
+    : isStartingReload
+      ? "Starting the pack reload."
+      : reloadSession
+        ? reloadAttempt === "missed"
+          ? "Bonus timing missed. The pack will reload automatically."
+          : reloadInActiveWindow
+            ? "Bonus window active. Activate now for one bonus treat."
+            : "Reloading. Activate again when the marker enters the striped bonus zone."
+        : "Start reloading a new FatBoy pack.";
+  const reloadDescription = isCompletingReload
+    ? "Opening your reloaded pack."
+    : isStartingReload
+      ? "Starting the reload timer."
+      : reloadSession
+        ? reloadAttempt === "missed"
+          ? "Timing missed. Your normal pack will finish reloading automatically."
+          : "Click the box again when the marker enters the striped gold zone for one bonus treat."
+        : "Click once to start reloading. Click again in the striped gold zone for one bonus treat; otherwise the pack reloads normally.";
+  const reloadMeterValueText = reloadAttempt === "perfect"
+    ? "Perfect timing registered. Opening the pack."
+    : reloadAttempt === "missed"
+      ? "Bonus timing missed. Reload will finish automatically."
+      : reloadInActiveWindow
+        ? "Bonus window. Activate the box now."
+        : `Reloading, ${Math.round(reloadProgress)} percent.`;
 
   return (
     <div className="game-shell">
@@ -847,7 +1334,7 @@ export function GameClient() {
           className={`portrait-stage${isFeeding ? " portrait-stage-feeding" : ""}${packEmpty ? " portrait-stage-pack-empty" : ""}`}
           id="game"
           ref={stageRef}
-          onClick={handleMiss}
+          onClick={(event) => void handleMiss(event)}
           aria-busy={loading || isFeeding || isOpeningPack}
         >
           {portrait ? (
@@ -918,37 +1405,111 @@ export function GameClient() {
             />
           ) : null}
 
-          {packEmpty && !isFeeding && !bootstrapError ? (
+          {sandwichSplat ? (
+            <div
+              className="sandwich-splat"
+              key={sandwichSplat.id}
+              style={{ left: sandwichSplat.x, top: sandwichSplat.y }}
+              aria-hidden="true"
+            >
+              <span className="sandwich-splat-cream" />
+              <img
+                src="/brand/vanilla-sandwich.webp"
+                alt=""
+                width="700"
+                height="420"
+                draggable={false}
+              />
+            </div>
+          ) : null}
+
+          {packEmpty && !isFeeding && !sandwichSplat && !bootstrapError ? (
             <section
-              className={`pack-reload${isOpeningPack ? " pack-reload-opening" : ""}`}
+              className={`pack-reload${isCompletingReload ? " pack-reload-opening" : ""}`}
               aria-labelledby="pack-reload-title"
               aria-describedby="pack-reload-description"
               onClick={(event) => event.stopPropagation()}
             >
               <div className="pack-reload-copy">
-                <p>Pack empty</p>
-                <h2 id="pack-reload-title">Open a fresh six-pack.</h2>
+                <p>
+                  {reloadAttempt === "perfect"
+                    ? "Perfect reload"
+                    : reloadAttempt === "missed"
+                      ? "Standard reload"
+                      : reloadSession
+                        ? "Active reload"
+                        : "Pack empty"}
+                </p>
+                <h2 id="pack-reload-title">Reload a fresh pack.</h2>
                 <span id="pack-reload-description">
-                  Click the box to reload your sandwiches.
+                  {reloadDescription}
                 </span>
               </div>
-              <button
-                className="pack-box-button"
-                type="button"
-                onClick={handleOpenPack}
-                disabled={isOpeningPack || offline}
-                aria-label="Open a new six-pack of FatBoy ice cream sandwiches"
-              >
-                <img
-                  src="/brand/fatboy-vanilla-6-pack.webp"
-                  alt=""
-                  width="2048"
-                  height="2048"
-                  draggable={false}
-                  aria-hidden="true"
-                />
-                <span>{isOpeningPack ? "opening…" : "click to open"}</span>
-              </button>
+              <div className="pack-reload-control">
+                <button
+                  className="pack-box-button"
+                  type="button"
+                  onClick={handleOpenPack}
+                  disabled={isStartingReload || isCompletingReload || offline}
+                  aria-label={reloadButtonLabel}
+                  aria-describedby="pack-reload-description"
+                >
+                  <img
+                    src="/brand/fatboy-vanilla-6-pack.webp"
+                    alt=""
+                    width="2048"
+                    height="2048"
+                    draggable={false}
+                    aria-hidden="true"
+                  />
+                  <span className="pack-box-label">
+                    {isCompletingReload
+                      ? "opening…"
+                      : isStartingReload
+                        ? "starting…"
+                        : reloadSession
+                          ? reloadAttempt === "perfect"
+                            ? "perfect reload!"
+                            : reloadAttempt === "missed"
+                              ? "timing missed · reloading"
+                              : reloadInActiveWindow
+                                ? "now! · +1 treat"
+                                : "click in stripes · +1 treat"
+                          : "click to reload"}
+                  </span>
+                </button>
+
+                {reloadSession && reloadMeterStyle ? (
+                  <div
+                    className={`active-reload-meter${reloadInActiveWindow ? " active-reload-meter-ready" : ""}${reloadAttempt === "perfect" ? " active-reload-meter-perfect" : ""}${reloadAttempt === "missed" ? " active-reload-meter-missed" : ""}`}
+                    role="progressbar"
+                    aria-label="Pack reload progress"
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={Math.round(reloadProgress)}
+                    aria-valuetext={reloadMeterValueText}
+                    style={reloadMeterStyle}
+                  >
+                    <span className="active-reload-zone" aria-hidden="true" />
+                    <span
+                      className="active-reload-indicator"
+                      aria-hidden="true"
+                    />
+                    <span
+                      className="active-reload-zone-label"
+                      aria-hidden="true"
+                    >
+                      {reloadAttempt === "perfect"
+                        ? "+1 locked"
+                        : reloadAttempt === "missed"
+                          ? "bonus missed"
+                          : reloadInActiveWindow
+                            ? "+1 now"
+                            : "+1 bonus"}
+                    </span>
+                  </div>
+                ) : null}
+              </div>
             </section>
           ) : null}
         </main>
@@ -966,7 +1527,13 @@ export function GameClient() {
             </h1>
             <p className="game-instruction" id="mouth-instructions">
               {packEmpty
-                ? "pack empty · click the box"
+                ? isStartingReload
+                  ? "pack empty · starting reload"
+                  : reloadSession
+                    ? reloadAttempt === "missed"
+                      ? "standard reload · finishing automatically"
+                      : "active reload · click in the stripes"
+                    : "pack empty · click the box"
                 : `tap the mouth · toss a 3D FatBoy · ${player?.sandwichesRemaining ?? 6} left`}
             </p>
           </div>
@@ -981,9 +1548,7 @@ export function GameClient() {
             </div>
             <div>
               <dt>pack</dt>
-              <dd>
-                {player ? `${player.sandwichesRemaining}/6` : "—"}
-              </dd>
+              <dd>{player ? `${player.sandwichesRemaining} left` : "—"}</dd>
             </div>
             <div>
               <dt>streak</dt>
@@ -1016,7 +1581,9 @@ export function GameClient() {
                 className="text-action"
                 type="button"
                 onClick={() => setLeaderboardOpen((open) => !open)}
-                disabled={!player || isFeeding || isOpeningPack}
+                disabled={
+                  !player || isFeeding || isOpeningPack || Boolean(reloadSession)
+                }
                 aria-expanded={leaderboardOpen}
                 aria-controls="leaderboard-panel"
               >
@@ -1046,9 +1613,13 @@ export function GameClient() {
                 ? "connecting"
                 : isFeeding
                   ? "saving"
-                  : isOpeningPack
+                  : isCompletingReload
                     ? "opening pack"
-                    : "saved"}
+                    : isStartingReload
+                      ? "starting reload"
+                      : reloadSession
+                        ? "reloading"
+                        : "saved"}
           </p>
         </footer>
 

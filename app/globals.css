@@ -158,6 +158,92 @@ button:disabled {
   z-index: 1;
 }
 
+.sandwich-splat {
+  position: absolute;
+  z-index: 7;
+  width: clamp(155px, 19vw, 250px);
+  aspect-ratio: 1;
+  pointer-events: none;
+  transform-origin: center;
+  animation: sandwich-splat 1.15s cubic-bezier(0.18, 0.72, 0.22, 1) both;
+}
+
+.sandwich-splat::before,
+.sandwich-splat::after {
+  position: absolute;
+  inset: -8%;
+  content: "";
+}
+
+.sandwich-splat::before {
+  background:
+    radial-gradient(circle at 50% 4%, #fff1c8 0 3.5%, transparent 4.4%),
+    radial-gradient(ellipse at 79% 16%, #f8e5b2 0 3.2%, transparent 4.1%),
+    radial-gradient(circle at 94% 46%, #fff1c8 0 3.8%, transparent 4.7%),
+    radial-gradient(ellipse at 79% 83%, #f8e5b2 0 3.4%, transparent 4.3%),
+    radial-gradient(circle at 48% 96%, #fff1c8 0 3.2%, transparent 4.1%),
+    radial-gradient(ellipse at 17% 82%, #f8e5b2 0 3.6%, transparent 4.5%),
+    radial-gradient(circle at 5% 48%, #fff1c8 0 3.5%, transparent 4.4%),
+    radial-gradient(ellipse at 21% 18%, #f8e5b2 0 3.3%, transparent 4.2%);
+  filter: drop-shadow(0 5px 5px rgb(0 0 0 / 32%));
+  transform: rotate(9deg);
+}
+
+.sandwich-splat::after {
+  background:
+    radial-gradient(circle at 68% 10%, #4f2414 0 1.7%, transparent 2.5%),
+    radial-gradient(circle at 91% 63%, #3a1b11 0 1.8%, transparent 2.6%),
+    radial-gradient(circle at 28% 93%, #4f2414 0 1.6%, transparent 2.4%),
+    radial-gradient(circle at 8% 35%, #3a1b11 0 1.7%, transparent 2.5%);
+  transform: rotate(-7deg);
+}
+
+.sandwich-splat-cream {
+  position: absolute;
+  inset: 27% 14%;
+  border-radius: 48% 52% 42% 58% / 55% 44% 56% 45%;
+  background: #fff0c3;
+  box-shadow:
+    -28px -9px 0 -13px #f8e5b2,
+    31px -14px 0 -14px #fff1c8,
+    35px 20px 0 -15px #f8e5b2,
+    -34px 23px 0 -15px #fff1c8,
+    0 9px 14px rgb(0 0 0 / 28%);
+  transform: rotate(-8deg) scaleY(0.72);
+}
+
+.sandwich-splat img {
+  position: absolute;
+  top: 34%;
+  left: 9%;
+  width: 82%;
+  height: auto;
+  filter: drop-shadow(0 7px 5px rgb(0 0 0 / 45%));
+  transform: rotate(-8deg) scaleY(0.48);
+}
+
+@keyframes sandwich-splat {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) rotate(-15deg) scale(0.2);
+  }
+  12% {
+    opacity: 1;
+    transform: translate(-50%, -50%) rotate(4deg) scale(1.16);
+  }
+  24% {
+    transform: translate(-50%, -50%) rotate(0) scale(0.98);
+  }
+  78% {
+    opacity: 1;
+    transform: translate(-50%, -50%) rotate(0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) rotate(1deg) scale(1.03);
+  }
+}
+
 .pack-reload {
   position: absolute;
   z-index: 9;
@@ -210,12 +296,19 @@ button:disabled {
   line-height: 1.45;
 }
 
-.pack-box-button {
+.pack-reload-control {
   position: relative;
   width: min(100%, 72vh, 760px);
   min-width: 44px;
-  min-height: 44px;
   justify-self: center;
+}
+
+.pack-box-button {
+  position: relative;
+  display: block;
+  width: 100%;
+  min-width: 44px;
+  min-height: 44px;
   padding: 0;
   border: 0;
   appearance: none;
@@ -233,10 +326,10 @@ button:disabled {
   transform-origin: 50% 62%;
 }
 
-.pack-box-button > span {
+.pack-box-label {
   position: absolute;
   right: 0;
-  bottom: 5%;
+  bottom: 3%;
   left: 0;
   color: #ffffff;
   font-size: clamp(0.72rem, 1vw, 0.88rem);
@@ -245,6 +338,90 @@ button:disabled {
   text-align: center;
   text-shadow: 0 2px 12px rgb(0 0 0 / 100%);
   text-transform: uppercase;
+}
+
+.active-reload-meter {
+  position: absolute;
+  z-index: 2;
+  right: 12%;
+  bottom: 10%;
+  left: 12%;
+  height: clamp(12px, 1.4vw, 16px);
+  border: 2px solid rgb(255 255 255 / 90%);
+  border-radius: 999px;
+  background: rgb(3 8 18 / 92%);
+  box-shadow:
+    0 0 0 1px rgb(0 0 0 / 90%),
+    0 5px 16px rgb(0 0 0 / 70%);
+  pointer-events: none;
+}
+
+.active-reload-zone {
+  position: absolute;
+  inset-block: 0;
+  left: var(--reload-zone-start);
+  width: var(--reload-zone-width);
+  border-inline: 1px solid rgb(255 255 255 / 72%);
+  background: repeating-linear-gradient(
+    135deg,
+    #f4d45e 0 5px,
+    #fff2ad 5px 8px
+  );
+  box-shadow: 0 0 14px rgb(244 212 94 / 72%);
+}
+
+.active-reload-indicator {
+  position: absolute;
+  z-index: 1;
+  top: 50%;
+  left: var(--reload-progress, 0%);
+  width: 4px;
+  height: calc(100% + 12px);
+  border-radius: 999px;
+  background: #ffffff;
+  box-shadow:
+    0 0 0 1px rgb(0 0 0 / 80%),
+    0 0 10px rgb(255 255 255 / 90%);
+  transform: translate(-50%, -50%);
+}
+
+.active-reload-zone-label {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 6px);
+  color: #f4d45e;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: clamp(0.5rem, 0.72vw, 0.66rem);
+  font-weight: 850;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  text-shadow: 0 2px 8px rgb(0 0 0 / 100%);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.active-reload-meter-ready,
+.active-reload-meter-perfect {
+  border-color: #f4d45e;
+  box-shadow:
+    0 0 0 1px rgb(0 0 0 / 90%),
+    0 0 18px rgb(244 212 94 / 82%);
+}
+
+.active-reload-meter-perfect .active-reload-indicator {
+  background: #f4d45e;
+  box-shadow:
+    0 0 0 1px rgb(0 0 0 / 80%),
+    0 0 14px rgb(244 212 94 / 100%);
+}
+
+.active-reload-meter-missed .active-reload-zone {
+  opacity: 0.34;
+  filter: saturate(0.25);
+}
+
+.active-reload-meter-missed .active-reload-zone-label {
+  color: rgb(255 255 255 / 72%);
 }
 
 .pack-box-button:hover:not(:disabled) img {
@@ -740,8 +917,13 @@ button:disabled {
     margin-top: 10px;
   }
 
-  .pack-box-button {
+  .pack-reload-control {
     width: min(92vw, 52vh, 540px);
+  }
+
+  .active-reload-meter {
+    right: 8%;
+    left: 8%;
   }
 
   .overlay-top {
@@ -808,6 +990,10 @@ button:disabled {
     width: clamp(120px, 36vw, 210px);
   }
 
+  .sandwich-splat {
+    width: clamp(135px, 42vw, 205px);
+  }
+
   @keyframes sandwich-feed {
     0% {
       opacity: 0;
@@ -868,8 +1054,13 @@ button:disabled {
     display: none;
   }
 
-  .pack-box-button {
+  .pack-reload-control {
     width: min(46vw, 52vh, 420px);
+  }
+
+  .active-reload-meter {
+    right: 8%;
+    left: 8%;
   }
 }
 
@@ -881,5 +1072,20 @@ button:disabled {
     transition-duration: 0.01ms !important;
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
+  }
+
+  .sandwich-flight,
+  .sandwich-splat {
+    opacity: 1;
+    animation: none !important;
+    transform: translate(-50%, -50%) rotate(0) scale(1);
+  }
+
+  .sandwich-flight {
+    transform: translate(-50%, -50%) rotate(2deg) scale(0.22);
+  }
+
+  .active-reload-indicator {
+    transition: none !important;
   }
 }

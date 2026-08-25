@@ -15,6 +15,13 @@
       "when": 1787673236813,
       "tag": "0001_cool_wendell_vaughn",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1787679556134,
+      "tag": "0002_faulty_spiral",
+      "breakpoints": true
     }
   ]
 }
