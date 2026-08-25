@@ -1,4 +1,4 @@
-# FatBoy Feed Frenzy
+# FatBoy Clicker
 
 A one-screen browser clicker game for FatBoy ice cream sandwiches. Players pick
 a nickname, feed locally cached synthetic portraits, and compete on a public

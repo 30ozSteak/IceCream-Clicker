@@ -44,7 +44,7 @@ export async function generateMetadata(): Promise<Metadata> {
 
   return {
     metadataBase: origin,
-    title: "FatBoy Feed Frenzy",
+    title: "FatBoy Clicker",
     description,
     alternates: { canonical: "/" },
     icons: {
@@ -53,21 +53,21 @@ export async function generateMetadata(): Promise<Metadata> {
     },
     openGraph: {
       type: "website",
-      title: "FatBoy Feed Frenzy",
+      title: "FatBoy Clicker",
       description,
-      siteName: "FatBoy Feed Frenzy",
+      siteName: "FatBoy Clicker",
       images: [
         {
           url: socialImage,
-          width: 1729,
+          width: 1728,
           height: 910,
-          alt: "FatBoy Feed Frenzy — click, feed, climb",
+          alt: "FatBoy Clicker — click, feed, climb",
         },
       ],
     },
     twitter: {
       card: "summary_large_image",
-      title: "FatBoy Feed Frenzy",
+      title: "FatBoy Clicker",
       description,
       images: [socialImage],
     },

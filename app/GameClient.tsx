@@ -103,8 +103,6 @@ type Notice = {
   tone: "info" | "success" | "miss" | "error";
 };
 
-type DialogMode = "required" | "rename";
-
 const numberFormatter = new Intl.NumberFormat("en-US");
 const nicknamePattern = /^[\p{L}\p{N}]+(?: [\p{L}\p{N}]+)*$/u;
 
@@ -294,26 +292,20 @@ function LeaderboardContents({
 }
 
 function NicknameDialog({
-  mode,
   value,
   error,
   saving,
   offline,
   onChange,
   onSubmit,
-  onClose,
 }: {
-  mode: DialogMode;
   value: string;
   error: string | null;
   saving: boolean;
   offline: boolean;
   onChange: (value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
-  onClose: () => void;
 }) {
-  const isRequired = mode === "required";
-
   return (
     <div className="plain-dialog-backdrop" role="presentation">
       <section
@@ -323,10 +315,7 @@ function NicknameDialog({
         aria-labelledby="nickname-title"
         aria-describedby="nickname-description"
       >
-        <p className="plain-kicker">FatBoy Feed Frenzy</p>
-        <h2 id="nickname-title">
-          {isRequired ? "Choose a name." : "Change your name."}
-        </h2>
+        <h2 id="nickname-title">Choose a name.</h2>
         <p id="nickname-description">
           Progress stays on this browser. We’ll add a four-character tag.
         </p>
@@ -373,82 +362,10 @@ function NicknameDialog({
               type="submit"
               disabled={saving || offline}
             >
-              {saving ? "saving…" : isRequired ? "start" : "save"}
+              {saving ? "saving…" : "start"}
             </button>
-            {isRequired ? null : (
-              <button
-                className="text-action"
-                type="button"
-                onClick={onClose}
-                disabled={saving}
-              >
-                cancel
-              </button>
-            )}
           </div>
         </form>
-      </section>
-    </div>
-  );
-}
-
-function ResetDialog({
-  resetting,
-  error,
-  offline,
-  onCancel,
-  onConfirm,
-}: {
-  resetting: boolean;
-  error: string | null;
-  offline: boolean;
-  onCancel: () => void;
-  onConfirm: () => void;
-}) {
-  return (
-    <div className="plain-dialog-backdrop" role="presentation">
-      <section
-        className="plain-dialog"
-        role="alertdialog"
-        aria-modal="true"
-        aria-labelledby="reset-title"
-        aria-describedby="reset-description"
-      >
-        <p className="plain-kicker">Reset progress</p>
-        <h2 id="reset-title">Start over?</h2>
-        <p id="reset-description">
-          This permanently removes your nickname and sandwich count from this
-          browser. It cannot be undone.
-        </p>
-        {error ? (
-          <p className="form-error" role="alert">
-            {error}
-          </p>
-        ) : null}
-        {offline ? (
-          <p className="form-error" role="status">
-            Reconnect before resetting progress.
-          </p>
-        ) : null}
-        <div className="plain-actions">
-          <button
-            className="text-action"
-            type="button"
-            onClick={onCancel}
-            disabled={resetting}
-            autoFocus
-          >
-            cancel
-          </button>
-          <button
-            className="text-action"
-            type="button"
-            onClick={onConfirm}
-            disabled={resetting || offline}
-          >
-            {resetting ? "resetting…" : "reset everything"}
-          </button>
-        </div>
       </section>
     </div>
   );
@@ -462,6 +379,7 @@ export function GameClient() {
   const [leaders, setLeaders] = useState<Leader[]>([]);
   const [globalTotal, setGlobalTotal] = useState<number | null>(null);
   const [leaderboardLoading, setLeaderboardLoading] = useState(true);
+  const [leaderboardOpen, setLeaderboardOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [bootstrapError, setBootstrapError] = useState<string | null>(null);
   const [offline, setOffline] = useState(false);
@@ -475,13 +393,9 @@ export function GameClient() {
   } | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [announcement, setAnnouncement] = useState("");
-  const [nicknameMode, setNicknameMode] = useState<DialogMode | null>(null);
   const [nicknameInput, setNicknameInput] = useState("");
   const [nicknameError, setNicknameError] = useState<string | null>(null);
   const [savingNickname, setSavingNickname] = useState(false);
-  const [resetOpen, setResetOpen] = useState(false);
-  const [resetting, setResetting] = useState(false);
-  const [resetError, setResetError] = useState<string | null>(null);
 
   const stageRef = useRef<HTMLDivElement>(null);
   const portraitImageRef = useRef<HTMLImageElement>(null);
@@ -643,36 +557,15 @@ export function GameClient() {
   }, []);
 
   useEffect(() => {
-    const handleDialogEscape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") {
-        return;
-      }
-
-      if (resetOpen && !resetting) {
-        setResetOpen(false);
-        setResetError(null);
-        return;
-      }
-
-      if (nicknameMode === "rename" && !savingNickname) {
-        setNicknameMode(null);
-        setNicknameError(null);
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setLeaderboardOpen(false);
       }
     };
 
-    document.addEventListener("keydown", handleDialogEscape);
-    return () => document.removeEventListener("keydown", handleDialogEscape);
-  }, [nicknameMode, resetOpen, resetting, savingNickname]);
-
-  const effectiveNicknameMode = useMemo<DialogMode | null>(() => {
-    if (nicknameMode) {
-      return nicknameMode;
-    }
-    if (!loading && game && !game.player.nickname) {
-      return "required";
-    }
-    return null;
-  }, [game, loading, nicknameMode]);
+    document.addEventListener("keydown", handleEscape);
+    return () => document.removeEventListener("keydown", handleEscape);
+  }, []);
 
   const mouthButtonStyle = useMemo<CSSProperties | undefined>(() => {
     if (!displayPortrait) {
@@ -883,12 +776,6 @@ export function GameClient() {
     }
   };
 
-  const openRenameDialog = () => {
-    setNicknameInput(game?.player.nickname ?? "");
-    setNicknameError(null);
-    setNicknameMode("rename");
-  };
-
   const submitNickname = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!game || savingNickname) {
@@ -924,11 +811,7 @@ export function GameClient() {
       }
       setGame({ ...game, player: nextPlayer });
       setNicknameInput(normalized);
-      setNicknameMode(null);
-      showNotice(
-        game.player.nickname ? "Nickname updated." : "Welcome to Feed Frenzy!",
-        "success",
-      );
+      showNotice("Welcome!", "success");
       void refreshLeaderboard().catch(() => undefined);
     } catch (error) {
       setNicknameError(getFriendlyError(error));
@@ -937,53 +820,18 @@ export function GameClient() {
     }
   };
 
-  const confirmReset = async () => {
-    if (resetting) {
-      return;
-    }
-
-    setResetting(true);
-    setResetError(null);
-
-    try {
-      const response = await fetch("/api/player", {
-        method: "DELETE",
-        credentials: "same-origin",
-      });
-      if (!response.ok) {
-        throw new ApiError(await readErrorMessage(response), response.status);
-      }
-
-      setResetOpen(false);
-      setGame(null);
-      setDisplayPortrait(null);
-      setLeaders([]);
-      setGlobalTotal(null);
-      setStreak(0);
-      setIsOpeningPack(false);
-      setNicknameInput("");
-      setNicknameMode(null);
-      await loadEverything();
-      showNotice("Progress reset. Your fresh start is ready.", "success");
-    } catch (error) {
-      setResetError(getFriendlyError(error));
-    } finally {
-      setResetting(false);
-    }
-  };
-
   const player = game?.player ?? null;
   const portrait = displayPortrait;
   const currentDisplayName = player?.displayName ?? null;
-  const modalOpen = Boolean(effectiveNicknameMode || resetOpen);
+  const nicknameRequired = Boolean(!loading && game && !game.player.nickname);
   const packEmpty = player?.sandwichesRemaining === 0;
 
   return (
     <div className="game-shell">
       <div
         className="game-scene"
-        inert={modalOpen ? true : undefined}
-        aria-hidden={modalOpen ? true : undefined}
+        inert={nicknameRequired ? true : undefined}
+        aria-hidden={nicknameRequired ? true : undefined}
       >
         <main
           className={`portrait-stage${isFeeding ? " portrait-stage-feeding" : ""}${packEmpty ? " portrait-stage-pack-empty" : ""}`}
@@ -1100,7 +948,6 @@ export function GameClient() {
                 width="450"
                 height="130"
               />
-              <span>Feed Frenzy</span>
             </h1>
             <p className="game-instruction" id="mouth-instructions">
               {packEmpty
@@ -1130,8 +977,15 @@ export function GameClient() {
           </dl>
         </header>
 
-        <aside className="leaderboard-plain" aria-label="Leaderboard">
-          <p className="overlay-label">Top feeders</p>
+        <aside
+          className="leaderboard-plain"
+          id="leaderboard-panel"
+          aria-labelledby="leaderboard-heading"
+          hidden={!leaderboardOpen}
+        >
+          <p className="overlay-label" id="leaderboard-heading">
+            Top feeders
+          </p>
           <LeaderboardContents
             leaders={leaders}
             currentDisplayName={currentDisplayName}
@@ -1145,22 +999,12 @@ export function GameClient() {
             <button
               className="text-action"
               type="button"
-              onClick={openRenameDialog}
+              onClick={() => setLeaderboardOpen((open) => !open)}
               disabled={!player || isFeeding || isOpeningPack}
+              aria-expanded={leaderboardOpen}
+              aria-controls="leaderboard-panel"
             >
-              rename
-            </button>
-            <span aria-hidden="true">·</span>
-            <button
-              className="text-action"
-              type="button"
-              onClick={() => {
-                setResetError(null);
-                setResetOpen(true);
-              }}
-              disabled={!player || isFeeding || isOpeningPack}
-            >
-              reset
+              leaderboard
             </button>
           </div>
           <p className="save-state" role="status">
@@ -1192,9 +1036,8 @@ export function GameClient() {
         {announcement}
       </div>
 
-      {effectiveNicknameMode ? (
+      {nicknameRequired ? (
         <NicknameDialog
-          mode={effectiveNicknameMode}
           value={nicknameInput}
           error={nicknameError}
           saving={savingNickname}
@@ -1204,23 +1047,6 @@ export function GameClient() {
             setNicknameError(null);
           }}
           onSubmit={submitNickname}
-          onClose={() => {
-            setNicknameMode(null);
-            setNicknameError(null);
-          }}
-        />
-      ) : null}
-
-      {resetOpen ? (
-        <ResetDialog
-          resetting={resetting}
-          error={resetError}
-          offline={offline}
-          onCancel={() => {
-            setResetOpen(false);
-            setResetError(null);
-          }}
-          onConfirm={() => void confirmReset()}
         />
       ) : null}
     </div>
