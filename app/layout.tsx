@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 const description =
-  "Clear FatBoy boxes, unlock the 12-pack, master six reload challenges, and climb the global leaderboard.";
+  "Clear FatBoy boxes, unlock the 12-pack, master nine reload challenges, and climb the global leaderboard.";
 
 function metadataOrigin(requestHeaders: Headers): URL {
   const forwardedHost = requestHeaders.get("x-forwarded-host")?.split(",")[0];
@@ -40,7 +40,7 @@ function metadataOrigin(requestHeaders: Headers): URL {
 
 export async function generateMetadata(): Promise<Metadata> {
   const origin = metadataOrigin(await headers());
-  const socialImage = new URL("/og.png", origin).toString();
+  const socialImage = new URL("/og-v2.png", origin).toString();
 
   return {
     metadataBase: origin,

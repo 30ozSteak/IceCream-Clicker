@@ -49,8 +49,12 @@ test("approved brand assets and exact provenance are present", async () => {
     "public/brand/fatboy-caramel-cashew-4-pack.webp",
     "public/brand/fatboy-sugar-cookie-6-pack.webp",
     "public/brand/fatboy-caramel-cookies-cream-4-pack.webp",
+    "public/brand/fatboy-cinnamon-churro-4-pack.webp",
+    "public/brand/fatboy-chocolate-6-pack.webp",
+    "public/brand/fatboy-birthday-cake-pops-4-pack.webp",
     "public/brand/vanilla-sandwich.webp",
     "public/og-3d.png",
+    "public/og-v2.png",
   ]) {
     const file = await stat(new URL(path, projectRoot));
     assert.ok(file.size > 10_000, `${path} is unexpectedly small`);
@@ -69,6 +73,12 @@ test("approved brand assets and exact provenance are present", async () => {
     "https://fatboyicecream.com/wp-content/uploads/2023/10/FB-SandwichSugarCookie-6ct-3dbox-05.png",
     "https://fatboyicecream.com/fatboy-caramel-cookies-n-cream-cookie-sandwich/",
     "https://fatboyicecream.com/wp-content/uploads/2024/02/FB-CNC-CookieBox.png",
+    "https://fatboyicecream.com/fatboy-cinnamon-churro-caramel-cookie-sandwich/",
+    "https://fatboyicecream.com/wp-content/uploads/2024/10/FB-Churro-Sandwich-3D.png",
+    "https://fatboyicecream.com/fatboy-chocolate-ice-cream-sandwich/",
+    "https://fatboyicecream.com/wp-content/uploads/2026/02/Chocolate-6ct-2025_3DBOX_LEFT.png",
+    "https://fatboyicecream.com/fatboy-birthday-cake-sandwich-pop/",
+    "https://fatboyicecream.com/wp-content/uploads/2024/10/FB-Birthday-Cake-4ct-3D-1.png",
   ]) {
     assert.ok(provenance.includes(sourceUrl), `${sourceUrl} is not documented`);
   }

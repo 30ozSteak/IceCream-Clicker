@@ -1,4 +1,4 @@
-export const PACK_CATALOG_VERSION = 1;
+export const PACK_CATALOG_VERSION = 2;
 export const STARTER_PACKS_BEFORE_UNLOCK = 3;
 
 export type ReloadMechanicId =
@@ -7,20 +7,56 @@ export type ReloadMechanicId =
   | "chip-hop"
   | "hands-off"
   | "sprinkle-rush"
-  | "converge";
+  | "converge"
+  | "spiral-hold"
+  | "triple-snap"
+  | "pop-launch";
 
 export interface ReloadWindow {
   startMs: number;
   endMs: number;
 }
 
-export interface PackReloadDefinition {
-  id: ReloadMechanicId;
+interface BasePackReloadDefinition {
   label: string;
   instruction: string;
   durationMs: number;
   windows: readonly ReloadWindow[];
 }
+
+type SimpleReloadMechanicId = Exclude<
+  ReloadMechanicId,
+  "spiral-hold" | "triple-snap" | "pop-launch"
+>;
+
+export interface SimplePackReloadDefinition extends BasePackReloadDefinition {
+  id: SimpleReloadMechanicId;
+}
+
+export interface SpiralHoldReloadDefinition extends BasePackReloadDefinition {
+  id: "spiral-hold";
+  pressWindow: ReloadWindow;
+  minHoldMs: number;
+  maxHoldMs: number;
+}
+
+export interface TripleSnapReloadDefinition extends BasePackReloadDefinition {
+  id: "triple-snap";
+  beats: readonly ReloadWindow[];
+}
+
+export interface PopLaunchReloadDefinition extends BasePackReloadDefinition {
+  id: "pop-launch";
+  launchWindow: ReloadWindow;
+  minTravelPx: number;
+  maxGestureMs: number;
+}
+
+export type PackReloadDefinition =
+  | SimplePackReloadDefinition
+  | SpiralHoldReloadDefinition
+  | TripleSnapReloadDefinition
+  | PopLaunchReloadDefinition;
 
 export interface PackDefinition {
   id: string;
@@ -144,6 +180,68 @@ export const PACK_CATALOG = [
       windows: [{ startMs: 1_420, endMs: 1_820 }],
     },
   },
+  {
+    id: "cinnamon-churro-4",
+    name: "Cinnamon Churro",
+    shortName: "Cinnamon Churro 4",
+    quantity: 4,
+    imageSrc: "/brand/fatboy-cinnamon-churro-4-pack.webp",
+    accent: "#d8a15f",
+    accentSoft: "#f4d6ad",
+    reload: {
+      id: "spiral-hold",
+      label: "Churro spiral",
+      instruction:
+        "Press during CATCH, keep holding, then release when the caramel spiral reaches GLAZE.",
+      durationMs: 3_600,
+      pressWindow: { startMs: 600, endMs: 1_200 },
+      minHoldMs: 500,
+      maxHoldMs: 1_800,
+      windows: [{ startMs: 1_700, endMs: 2_400 }],
+    },
+  },
+  {
+    id: "chocolate-6",
+    name: "Chocolate",
+    shortName: "Chocolate 6",
+    quantity: 6,
+    imageSrc: "/brand/fatboy-chocolate-6-pack.webp",
+    accent: "#c58b72",
+    accentSoft: "#e8c1ae",
+    reload: {
+      id: "triple-snap",
+      label: "Triple snap",
+      instruction:
+        "Tap all three chocolate-bar beats in order. The third snap opens the box early.",
+      durationMs: 4_000,
+      beats: [
+        { startMs: 450, endMs: 1_000 },
+        { startMs: 1_450, endMs: 2_000 },
+        { startMs: 2_450, endMs: 3_000 },
+      ],
+      windows: [{ startMs: 2_450, endMs: 3_000 }],
+    },
+  },
+  {
+    id: "birthday-cake-pops-4",
+    name: "Birthday Cake Sandwich Pops",
+    shortName: "Birthday Pops 4",
+    quantity: 4,
+    imageSrc: "/brand/fatboy-birthday-cake-pops-4-pack.webp",
+    accent: "#59c9e8",
+    accentSoft: "#f4b9d8",
+    reload: {
+      id: "pop-launch",
+      label: "Pop launch",
+      instruction:
+        "Press during LAUNCH, then swipe the pop upward through the PARTY ring.",
+      durationMs: 3_500,
+      launchWindow: { startMs: 700, endMs: 1_300 },
+      minTravelPx: 48,
+      maxGestureMs: 1_600,
+      windows: [{ startMs: 1_700, endMs: 2_300 }],
+    },
+  },
 ] as const satisfies readonly PackDefinition[];
 
 export type PackId = (typeof PACK_CATALOG)[number]["id"];
@@ -159,6 +257,9 @@ const POST_UNLOCK_CYCLE: readonly PackDefinition[] = [
   PACK_CATALOG[4],
   PACK_CATALOG[5],
   PACK_CATALOG[0],
+  PACK_CATALOG[6],
+  PACK_CATALOG[7],
+  PACK_CATALOG[8],
 ];
 
 export const MAX_PACK_QUANTITY = Math.max(

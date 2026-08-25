@@ -16,6 +16,7 @@ import {
   classifyPackReload,
   nextReloadOpportunityMs,
 } from "../lib/server/game-rules.ts";
+import { hasValidReloadInteractionConfig } from "../lib/reload-interactions.ts";
 
 const EXPECTED_PACKS = [
   {
@@ -54,10 +55,40 @@ const EXPECTED_PACKS = [
     mechanic: "converge",
     imageSrc: "/brand/fatboy-caramel-cookies-cream-4-pack.webp",
   },
+  {
+    id: "cinnamon-churro-4",
+    quantity: 4,
+    mechanic: "spiral-hold",
+    imageSrc: "/brand/fatboy-cinnamon-churro-4-pack.webp",
+  },
+  {
+    id: "chocolate-6",
+    quantity: 6,
+    mechanic: "triple-snap",
+    imageSrc: "/brand/fatboy-chocolate-6-pack.webp",
+  },
+  {
+    id: "birthday-cake-pops-4",
+    quantity: 4,
+    mechanic: "pop-launch",
+    imageSrc: "/brand/fatboy-birthday-cake-pops-4-pack.webp",
+  },
+];
+
+const EXPECTED_POST_UNLOCK_CYCLE = [
+  "vanilla-12",
+  "cookies-cream-6",
+  "caramel-cashew-4",
+  "sugar-cookie-6",
+  "caramel-cookies-cream-4",
+  "vanilla-6",
+  "cinnamon-churro-4",
+  "chocolate-6",
+  "birthday-cake-pops-4",
 ];
 
 test("pack catalog keeps the reviewed products, quantities, and mechanics", () => {
-  assert.equal(PACK_CATALOG_VERSION, 1);
+  assert.equal(PACK_CATALOG_VERSION, 2);
   assert.equal(STARTER_PACKS_BEFORE_UNLOCK, 3);
   assert.equal(PACK_CATALOG.length, EXPECTED_PACKS.length);
   assert.equal(MAX_PACK_QUANTITY, 12);
@@ -94,6 +125,11 @@ test("pack catalog keeps the reviewed products, quantities, and mechanics", () =
     assert.ok(pack.reload.durationMs > 0);
     assert.ok(pack.reload.label.length > 0);
     assert.ok(pack.reload.instruction.length > 0);
+    assert.equal(
+      hasValidReloadInteractionConfig(pack.reload),
+      true,
+      `${pack.id} must have a valid reload interaction config`,
+    );
 
     let previousGraceEndMs = -1;
     for (const window of pack.reload.windows) {
@@ -110,30 +146,57 @@ test("pack catalog keeps the reviewed products, quantities, and mechanics", () =
     }
   }
 
+  const cinnamonChurro = getPackById("cinnamon-churro-4");
+  assert.equal(cinnamonChurro?.reload.id, "spiral-hold");
+  if (cinnamonChurro?.reload.id === "spiral-hold") {
+    const releaseWindow = cinnamonChurro.reload.windows[0];
+    assert.ok(releaseWindow);
+    assert.ok(
+      releaseWindow.startMs - cinnamonChurro.reload.pressWindow.endMs <=
+        cinnamonChurro.reload.maxHoldMs,
+    );
+    assert.ok(
+      releaseWindow.endMs - cinnamonChurro.reload.pressWindow.startMs >=
+        cinnamonChurro.reload.minHoldMs,
+    );
+  }
+
+  const chocolate = getPackById("chocolate-6");
+  assert.equal(chocolate?.reload.id, "triple-snap");
+  if (chocolate?.reload.id === "triple-snap") {
+    assert.equal(chocolate.reload.beats.length, 3);
+    assert.deepEqual(chocolate.reload.windows, [chocolate.reload.beats.at(-1)]);
+  }
+
+  const birthdayPops = getPackById("birthday-cake-pops-4");
+  assert.equal(birthdayPops?.reload.id, "pop-launch");
+  if (birthdayPops?.reload.id === "pop-launch") {
+    const releaseWindow = birthdayPops.reload.windows[0];
+    assert.ok(releaseWindow);
+    assert.ok(
+      releaseWindow.startMs - birthdayPops.reload.launchWindow.endMs <=
+        birthdayPops.reload.maxGestureMs,
+    );
+    assert.ok(birthdayPops.reload.minTravelPx > 0);
+  }
+
   assert.equal(getPackById("not-a-pack"), null);
 });
 
 test("pack selector unlocks after three starter boxes and repeats the full tail", () => {
+  const expectedSequence = [
+    "vanilla-6",
+    "vanilla-6",
+    "vanilla-6",
+    ...EXPECTED_POST_UNLOCK_CYCLE,
+    ...EXPECTED_POST_UNLOCK_CYCLE,
+  ];
   assert.deepEqual(
-    Array.from({ length: 16 }, (_, index) => getPackForOrdinal(index + 1).id),
-    [
-      "vanilla-6",
-      "vanilla-6",
-      "vanilla-6",
-      "vanilla-12",
-      "cookies-cream-6",
-      "caramel-cashew-4",
-      "sugar-cookie-6",
-      "caramel-cookies-cream-4",
-      "vanilla-6",
-      "vanilla-12",
-      "cookies-cream-6",
-      "caramel-cashew-4",
-      "sugar-cookie-6",
-      "caramel-cookies-cream-4",
-      "vanilla-6",
-      "vanilla-12",
-    ],
+    Array.from(
+      { length: expectedSequence.length },
+      (_, index) => getPackForOrdinal(index + 1).id,
+    ),
+    expectedSequence,
   );
 
   for (const invalidOrdinal of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
@@ -150,19 +213,8 @@ test("pack selector unlocks after three starter boxes and repeats the full tail"
   assert.equal(getPacksCleared(0, 6), 0);
 
   assert.deepEqual(
-    getClearedPackHistory(10).map((pack) => pack.id),
-    [
-      "vanilla-6",
-      "vanilla-6",
-      "vanilla-6",
-      "vanilla-12",
-      "cookies-cream-6",
-      "caramel-cashew-4",
-      "sugar-cookie-6",
-      "caramel-cookies-cream-4",
-      "vanilla-6",
-      "vanilla-12",
-    ],
+    getClearedPackHistory(expectedSequence.length).map((pack) => pack.id),
+    expectedSequence,
   );
   assert.deepEqual(getClearedPackHistory(0), []);
   assert.equal(getDisplayedClearedPackCount(1, 0), 0);

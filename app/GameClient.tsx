@@ -8,7 +8,9 @@ import dynamic from "next/dynamic";
 import {
   type CSSProperties,
   type FormEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
   useCallback,
   useEffect,
   useMemo,
@@ -21,6 +23,7 @@ import {
   normalizedImagePointToStage,
   stagePointToNormalizedImage,
 } from "../lib/client/portrait-geometry";
+import { getFeedReaction } from "../lib/feed-reactions";
 import {
   getClearedPackHistory,
   getDisplayedClearedPackCount,
@@ -28,6 +31,14 @@ import {
   type ReloadMechanicId,
   type ReloadWindow,
 } from "../lib/packs";
+import {
+  advanceTripleSnap,
+  evaluatePopLaunch,
+  evaluateSpiralHold,
+  getReloadVisualWindows,
+  hasValidReloadInteractionConfig,
+  isElapsedInWindow,
+} from "../lib/reload-interactions";
 
 const FatboyProjectile = dynamic(
   () =>
@@ -120,6 +131,20 @@ type ApiPackReloadStartResponse = {
 
 type ReloadAttempt = "none" | "missed" | "perfect";
 
+type ReloadGesture =
+  | {
+      kind: "spiral-hold";
+      pointerId: number | null;
+      startedElapsedMs: number;
+    }
+  | {
+      kind: "pop-launch";
+      pointerId: number | null;
+      startedElapsedMs: number;
+      startedAtClockMs: number;
+      startY: number;
+    };
+
 type ReloadSession = ApiPackReloadStartResponse["reload"] & {
   startedAt: number;
   autoCompleteAtMs: number;
@@ -147,11 +172,19 @@ type ApiLeaderboardResponse = {
 
 type Notice = {
   message: string;
-  tone: "info" | "success" | "miss" | "error";
+  tone: "info" | "success" | "error";
 };
 
 type SandwichSplat = {
   id: number;
+  x: number;
+  y: number;
+};
+
+type FeedReaction = {
+  id: number;
+  message: string;
+  tone: "hit" | "miss";
   x: number;
   y: number;
 };
@@ -279,7 +312,14 @@ function createReloadSession(
     !Number.isFinite(reload.durationMs) ||
     reload.durationMs <= 0 ||
     reload.durationMs !== reload.pack.reload.durationMs ||
-    !windowsAreValid
+    !windowsAreValid ||
+    reload.windows.length !== reload.pack.reload.windows.length ||
+    reload.windows.some(
+      (window, index) =>
+        window.startMs !== reload.pack.reload.windows[index]?.startMs ||
+        window.endMs !== reload.pack.reload.windows[index]?.endMs,
+    ) ||
+    !hasValidReloadInteractionConfig(reload.pack.reload)
   ) {
     throw new Error("The reload response did not include valid timing data.");
   }
@@ -559,6 +599,11 @@ export function GameClient() {
   const [reloadSession, setReloadSession] = useState<ReloadSession | null>(null);
   const [reloadElapsedMs, setReloadElapsedMs] = useState(0);
   const [reloadAttempt, setReloadAttempt] = useState<ReloadAttempt>("none");
+  const [reloadGestureKind, setReloadGestureKind] = useState<
+    ReloadGesture["kind"] | null
+  >(null);
+  const [tripleSnapStep, setTripleSnapStep] = useState(0);
+  const [accessibleReloadPending, setAccessibleReloadPending] = useState(false);
   const [threeProjectileReady, setThreeProjectileReady] = useState(false);
   const [shotUsesThree, setShotUsesThree] = useState(false);
   const [geometry, setGeometry] = useState<CoverGeometry | null>(null);
@@ -567,6 +612,7 @@ export function GameClient() {
     y: number;
   } | null>(null);
   const [sandwichSplat, setSandwichSplat] = useState<SandwichSplat | null>(null);
+  const [feedReaction, setFeedReaction] = useState<FeedReaction | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [announcement, setAnnouncement] = useState("");
   const [nicknameInput, setNicknameInput] = useState("");
@@ -579,9 +625,15 @@ export function GameClient() {
   const packLockRef = useRef(false);
   const reloadSessionRef = useRef<ReloadSession | null>(null);
   const reloadAttemptRef = useRef<ReloadAttempt>("none");
+  const reloadGestureRef = useRef<ReloadGesture | null>(null);
+  const tripleSnapStepRef = useRef(0);
+  const reloadCueRef = useRef<string | null>(null);
+  const accessibleReloadStepRef = useRef(0);
+  const accessibleReloadPendingRef = useRef(false);
   const reloadFrameRef = useRef<number | null>(null);
   const reloadGenerationRef = useRef(0);
   const splatIdRef = useRef(0);
+  const reactionIdRef = useRef(0);
   const noticeTimerRef = useRef<number | null>(null);
   const reducedMotion = useReducedMotion();
   const isOpeningPack = isStartingReload || isCompletingReload;
@@ -594,6 +646,11 @@ export function GameClient() {
     }
     reloadSessionRef.current = null;
     reloadAttemptRef.current = "none";
+    reloadGestureRef.current = null;
+    tripleSnapStepRef.current = 0;
+    reloadCueRef.current = null;
+    accessibleReloadStepRef.current = 0;
+    accessibleReloadPendingRef.current = false;
     packLockRef.current = false;
   }, []);
 
@@ -602,6 +659,9 @@ export function GameClient() {
     setReloadSession(null);
     setReloadElapsedMs(0);
     setReloadAttempt("none");
+    setReloadGestureKind(null);
+    setTripleSnapStep(0);
+    setAccessibleReloadPending(false);
     setIsStartingReload(false);
     setIsCompletingReload(false);
   }, [cancelReloadWork]);
@@ -779,6 +839,22 @@ export function GameClient() {
   }, [reducedMotion, sandwichSplat]);
 
   useEffect(() => {
+    if (!feedReaction) {
+      return;
+    }
+
+    const reactionTimer = window.setTimeout(
+      () => {
+        setFeedReaction((current) =>
+          current?.id === feedReaction.id ? null : current,
+        );
+      },
+      reducedMotion ? 650 : 1_050,
+    );
+    return () => window.clearTimeout(reactionTimer);
+  }, [feedReaction, reducedMotion]);
+
+  useEffect(() => {
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         setLeaderboardOpen(false);
@@ -885,6 +961,7 @@ export function GameClient() {
     const clickedPortrait = displayPortrait;
 
     setSandwichSplat(null);
+    setFeedReaction(null);
     setSandwichTarget(target);
     setGame({
       ...snapshot,
@@ -922,17 +999,28 @@ export function GameClient() {
     setSandwichTarget(null);
     splatIdRef.current += 1;
     setSandwichSplat({ ...target, id: splatIdRef.current });
+    reactionIdRef.current += 1;
+    const reactionId = reactionIdRef.current;
+    setFeedReaction({
+      id: reactionId,
+      message: "Splat!",
+      tone: "miss",
+      ...target,
+    });
 
     const result = await missRequest;
     if (result.ok && result.data.outcome === "miss") {
       setGame(result.data.game);
       setDisplayPortrait(result.data.game.round.current);
-      showNotice("Splat! Sandwich spent — no point.", "miss");
+      setAnnouncement("Miss. Sandwich spent; no point scored.");
     } else {
       const error = result.ok
         ? new Error("The server returned the wrong throw outcome.")
         : result.error;
       setSandwichSplat(null);
+      setFeedReaction((current) =>
+        current?.id === reactionId ? null : current,
+      );
       setGame(snapshot);
       setDisplayPortrait(snapshot.round.current);
       setStreak(previousStreak);
@@ -989,6 +1077,7 @@ export function GameClient() {
         };
 
     setSandwichSplat(null);
+    setFeedReaction(null);
     setSandwichTarget(target);
     setGame({
       ...snapshot,
@@ -1031,6 +1120,14 @@ export function GameClient() {
     );
 
     await delay(reducedMotion ? 40 : 210);
+    reactionIdRef.current += 1;
+    const reactionId = reactionIdRef.current;
+    setFeedReaction({
+      id: reactionId,
+      message: getFeedReaction(snapshot.player.sandwichesFed + 1),
+      tone: "hit",
+      ...target,
+    });
     setDisplayPortrait(snapshot.round.next);
     setSandwichTarget(null);
 
@@ -1039,6 +1136,9 @@ export function GameClient() {
       setGame(result.data);
       setDisplayPortrait(result.data.round.current);
     } else {
+      setFeedReaction((current) =>
+        current?.id === reactionId ? null : current,
+      );
       setGame(snapshot);
       setDisplayPortrait(snapshot.round.current);
       setGlobalTotal(previousGlobalTotal);
@@ -1166,7 +1266,15 @@ export function GameClient() {
     const requestStartedAt = performance.now();
     packLockRef.current = true;
     reloadAttemptRef.current = "none";
+    reloadGestureRef.current = null;
+    tripleSnapStepRef.current = 0;
+    reloadCueRef.current = null;
+    accessibleReloadStepRef.current = 0;
+    accessibleReloadPendingRef.current = false;
     setReloadAttempt("none");
+    setReloadGestureKind(null);
+    setTripleSnapStep(0);
+    setAccessibleReloadPending(false);
     setReloadElapsedMs(0);
     setIsStartingReload(true);
     setAnnouncement("Starting pack reload.");
@@ -1238,6 +1346,81 @@ export function GameClient() {
         lastPaintAt = now;
       }
 
+      if (reloadAttemptRef.current === "none") {
+        const definition = reloadSession.pack.reload;
+        const gesture = reloadGestureRef.current;
+        let missedMessage: string | null = null;
+        let activeCue: string | null = null;
+
+        if (definition.id === "spiral-hold") {
+          if (gesture?.kind === "spiral-hold") {
+            const releaseWindow = definition.windows[0];
+            if (releaseWindow && isElapsedInWindow(elapsedMs, releaseWindow)) {
+              activeCue = "GLAZE active. Release now.";
+            }
+            if (
+              elapsedMs - gesture.startedElapsedMs > definition.maxHoldMs ||
+              (releaseWindow && elapsedMs > releaseWindow.endMs)
+            ) {
+              missedMessage =
+                "The GLAZE release passed. This box will finish automatically.";
+            }
+          } else {
+            if (isElapsedInWindow(elapsedMs, definition.pressWindow)) {
+              activeCue = "CATCH active. Press and hold now.";
+            } else if (elapsedMs > definition.pressWindow.endMs) {
+              missedMessage =
+                "The CATCH window passed. This box will finish automatically.";
+            }
+          }
+        } else if (definition.id === "triple-snap") {
+          const targetBeat = definition.beats[tripleSnapStepRef.current];
+          if (targetBeat) {
+            if (isElapsedInWindow(elapsedMs, targetBeat)) {
+              activeCue = `Chocolate snap ${tripleSnapStepRef.current + 1} active. Activate now.`;
+            } else if (elapsedMs > targetBeat.endMs) {
+              missedMessage =
+                "A chocolate snap passed. This box will finish automatically.";
+            }
+          }
+        } else if (definition.id === "pop-launch") {
+          if (gesture?.kind === "pop-launch") {
+            const releaseWindow = definition.windows[0];
+            if (releaseWindow && isElapsedInWindow(elapsedMs, releaseWindow)) {
+              activeCue =
+                "PARTY active. Swipe up or press Arrow Up now.";
+            }
+            if (
+              elapsedMs - gesture.startedElapsedMs > definition.maxGestureMs ||
+              (releaseWindow && elapsedMs > releaseWindow.endMs)
+            ) {
+              missedMessage =
+                "The PARTY ring passed. This box will finish automatically.";
+            }
+          } else {
+            if (isElapsedInWindow(elapsedMs, definition.launchWindow)) {
+              activeCue = "LAUNCH active. Press now.";
+            } else if (elapsedMs > definition.launchWindow.endMs) {
+              missedMessage =
+                "The LAUNCH window passed. This box will finish automatically.";
+            }
+          }
+        }
+
+        if (activeCue && reloadCueRef.current !== activeCue) {
+          reloadCueRef.current = activeCue;
+          setAnnouncement(activeCue);
+        }
+
+        if (missedMessage) {
+          reloadGestureRef.current = null;
+          setReloadGestureKind(null);
+          reloadAttemptRef.current = "missed";
+          setReloadAttempt("missed");
+          setAnnouncement(missedMessage);
+        }
+      }
+
       if (elapsedMs >= reloadSession.autoCompleteAtMs) {
         setReloadElapsedMs(reloadSession.durationMs);
         reloadFrameRef.current = null;
@@ -1256,6 +1439,143 @@ export function GameClient() {
       }
     };
   }, [finishPackReload, isCompletingReload, reducedMotion, reloadSession]);
+
+  const currentReloadElapsed = (session: ReloadSession) =>
+    reducedMotion
+      ? reloadElapsedMs
+      : Math.max(0, performance.now() - session.startedAt);
+
+  const clearReloadGesture = () => {
+    reloadGestureRef.current = null;
+    setReloadGestureKind(null);
+  };
+
+  const missQuickOpen = (message: string) => {
+    clearReloadGesture();
+    reloadAttemptRef.current = "missed";
+    setReloadAttempt("missed");
+    setAnnouncement(message);
+  };
+
+  const completeQuickOpen = (session: ReloadSession, message: string) => {
+    clearReloadGesture();
+    reloadAttemptRef.current = "perfect";
+    setReloadAttempt("perfect");
+    setAnnouncement(message);
+    void finishPackReload(session);
+  };
+
+  const beginTimedGesture = (
+    session: ReloadSession,
+    pointerId: number | null,
+    startY: number,
+  ) => {
+    const definition = session.pack.reload;
+    const elapsedMs = currentReloadElapsed(session);
+    setReloadElapsedMs(Math.min(elapsedMs, session.durationMs));
+
+    if (definition.id === "spiral-hold") {
+      if (!isElapsedInWindow(elapsedMs, definition.pressWindow)) {
+        missQuickOpen(
+          "The churro spiral missed CATCH. This box will finish automatically.",
+        );
+        return false;
+      }
+      reloadGestureRef.current = {
+        kind: "spiral-hold",
+        pointerId,
+        startedElapsedMs: elapsedMs,
+      };
+      setReloadGestureKind("spiral-hold");
+      setAnnouncement("CATCH locked. Keep holding, then release on GLAZE.");
+      return true;
+    }
+
+    if (definition.id === "pop-launch") {
+      if (!isElapsedInWindow(elapsedMs, definition.launchWindow)) {
+        missQuickOpen(
+          "The pop missed LAUNCH. This box will finish automatically.",
+        );
+        return false;
+      }
+      reloadGestureRef.current = {
+        kind: "pop-launch",
+        pointerId,
+        startedElapsedMs: elapsedMs,
+        startedAtClockMs: performance.now(),
+        startY,
+      };
+      setReloadGestureKind("pop-launch");
+      setAnnouncement(
+        pointerId === null
+          ? "Pop armed. Press Arrow Up when PARTY lights."
+          : "Pop armed. Swipe upward when PARTY lights.",
+      );
+      return true;
+    }
+
+    return false;
+  };
+
+  const finishTimedGesture = (
+    session: ReloadSession,
+    endY: number,
+    keyboardLaunch = false,
+  ) => {
+    const gesture = reloadGestureRef.current;
+    const definition = session.pack.reload;
+    if (!gesture) {
+      return;
+    }
+
+    const elapsedMs = currentReloadElapsed(session);
+    setReloadElapsedMs(Math.min(elapsedMs, session.durationMs));
+
+    if (gesture.kind === "spiral-hold" && definition.id === "spiral-hold") {
+      if (
+        evaluateSpiralHold(
+          gesture.startedElapsedMs,
+          elapsedMs,
+          definition,
+        )
+      ) {
+        completeQuickOpen(
+          session,
+          "Churro spiral glazed. Opening the box now.",
+        );
+      } else {
+        missQuickOpen(
+          "The GLAZE release missed. This box will finish automatically.",
+        );
+      }
+      return;
+    }
+
+    if (gesture.kind === "pop-launch" && definition.id === "pop-launch") {
+      const completed = evaluatePopLaunch(
+        {
+          startElapsedMs: gesture.startedElapsedMs,
+          endElapsedMs: elapsedMs,
+          startY: gesture.startY,
+          endY: keyboardLaunch
+            ? gesture.startY - definition.minTravelPx
+            : endY,
+          gestureDurationMs: performance.now() - gesture.startedAtClockMs,
+        },
+        definition,
+      );
+      if (completed) {
+        completeQuickOpen(
+          session,
+          "Birthday pop launched through PARTY. Opening the box now.",
+        );
+      } else {
+        missQuickOpen(
+          "The pop missed the PARTY ring. This box will finish automatically.",
+        );
+      }
+    }
+  };
 
   const handleOpenPack = (event: ReactMouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
@@ -1286,28 +1606,189 @@ export function GameClient() {
       return;
     }
 
-    const elapsedMs = reducedMotion
-      ? reloadElapsedMs
-      : Math.max(0, performance.now() - session.startedAt);
-    setReloadElapsedMs(Math.min(elapsedMs, session.durationMs));
-    if (
-      session.windows.some(
-        (window) =>
-          elapsedMs >= window.startMs && elapsedMs <= window.endMs,
-      )
-    ) {
-      reloadAttemptRef.current = "perfect";
-      setReloadAttempt("perfect");
-      setAnnouncement("Quick-open timing locked. Opening the box now.");
-      void finishPackReload(session);
+    const definition = session.pack.reload;
+    if (definition.id === "spiral-hold" || definition.id === "pop-launch") {
+      if (event.detail === 0) {
+        const gesture = reloadGestureRef.current;
+        if (!gesture) {
+          beginTimedGesture(session, null, 0);
+        } else if (
+          gesture.kind === definition.id &&
+          gesture.pointerId === null
+        ) {
+          finishTimedGesture(session, 0, definition.id === "pop-launch");
+        }
+      } else {
+        setAnnouncement(definition.instruction);
+      }
       return;
     }
 
-    reloadAttemptRef.current = "missed";
-    setReloadAttempt("missed");
-    setAnnouncement(
+    const elapsedMs = currentReloadElapsed(session);
+    setReloadElapsedMs(Math.min(elapsedMs, session.durationMs));
+
+    if (definition.id === "triple-snap") {
+      const result = advanceTripleSnap(
+        tripleSnapStepRef.current,
+        elapsedMs,
+        definition,
+      );
+      if (result.status === "progress") {
+        tripleSnapStepRef.current = result.nextStep;
+        setTripleSnapStep(result.nextStep);
+        setAnnouncement(
+          `Chocolate snap ${result.nextStep} of ${definition.beats.length}. Get ready for the next beat.`,
+        );
+      } else if (result.status === "perfect") {
+        tripleSnapStepRef.current = result.nextStep;
+        setTripleSnapStep(result.nextStep);
+        completeQuickOpen(
+          session,
+          "All three chocolate snaps landed. Opening the box now.",
+        );
+      } else {
+        missQuickOpen(
+          "A chocolate snap missed its beat. This box will finish automatically.",
+        );
+      }
+      return;
+    }
+
+    if (session.windows.some((window) => isElapsedInWindow(elapsedMs, window))) {
+      completeQuickOpen(session, "Quick-open timing locked. Opening the box now.");
+      return;
+    }
+
+    missQuickOpen(
       "Quick-open timing missed. The box will finish automatically.",
     );
+  };
+
+  const handlePackPointerDown = (
+    event: ReactPointerEvent<HTMLButtonElement>,
+  ) => {
+    const session = reloadSessionRef.current;
+    if (
+      event.button !== 0 ||
+      !session ||
+      reloadAttemptRef.current !== "none" ||
+      packLockRef.current ||
+      (session.mechanic !== "spiral-hold" && session.mechanic !== "pop-launch")
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    if (!beginTimedGesture(session, event.pointerId, event.clientY)) {
+      return;
+    }
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {
+      setAnnouncement("Keep the pointer over the box until the release cue.");
+    }
+  };
+
+  const handlePackPointerMove = (
+    event: ReactPointerEvent<HTMLButtonElement>,
+  ) => {
+    const gesture = reloadGestureRef.current;
+    if (gesture?.kind === "pop-launch" && gesture.pointerId === event.pointerId) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+  };
+
+  const handlePackPointerUp = (
+    event: ReactPointerEvent<HTMLButtonElement>,
+  ) => {
+    const gesture = reloadGestureRef.current;
+    const session = reloadSessionRef.current;
+    if (!gesture || gesture.pointerId !== event.pointerId || !session) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    try {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    } catch {
+      // Pointer capture can already be released when the browser sends pointerup.
+    }
+    finishTimedGesture(session, event.clientY);
+  };
+
+  const handlePackPointerCancel = (
+    event: ReactPointerEvent<HTMLButtonElement>,
+  ) => {
+    const gesture = reloadGestureRef.current;
+    if (!gesture || gesture.pointerId !== event.pointerId) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    missQuickOpen(
+      "The quick-open gesture was interrupted. This box will finish automatically.",
+    );
+  };
+
+  const handlePackKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
+    const session = reloadSessionRef.current;
+    if (
+      !session ||
+      reloadAttemptRef.current !== "none" ||
+      packLockRef.current
+    ) {
+      return;
+    }
+    const definition = session.pack.reload;
+    const activationKey = event.key === " " || event.key === "Enter";
+
+    if (definition.id === "spiral-hold" && activationKey) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!event.repeat && !reloadGestureRef.current) {
+        beginTimedGesture(session, null, 0);
+      }
+      return;
+    }
+
+    if (definition.id !== "pop-launch") {
+      return;
+    }
+    if (activationKey) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!event.repeat && !reloadGestureRef.current) {
+        beginTimedGesture(session, null, 0);
+      }
+      return;
+    }
+    if (
+      event.key === "ArrowUp" &&
+      reloadGestureRef.current?.kind === "pop-launch" &&
+      reloadGestureRef.current.pointerId === null
+    ) {
+      event.preventDefault();
+      event.stopPropagation();
+      finishTimedGesture(session, 0, true);
+    }
+  };
+
+  const handlePackKeyUp = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
+    const session = reloadSessionRef.current;
+    const gesture = reloadGestureRef.current;
+    const activationKey = event.key === " " || event.key === "Enter";
+    if (!session || !activationKey || !gesture || gesture.pointerId !== null) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    if (gesture.kind === "spiral-hold") {
+      finishTimedGesture(session, 0);
+    }
   };
 
   const submitNickname = async (event: FormEvent<HTMLFormElement>) => {
@@ -1371,13 +1852,17 @@ export function GameClient() {
   const reloadProgress = reloadSession
     ? Math.min(100, Math.max(0, (reloadElapsedMs / reloadSession.durationMs) * 100))
     : 0;
+  const reloadVisualWindows = reloadSession
+    ? getReloadVisualWindows(reloadSession.pack.reload)
+    : [];
+  const activeVisualWindowIndex = reloadVisualWindows.findIndex((window) =>
+    isElapsedInWindow(reloadElapsedMs, window),
+  );
   const reloadInActiveWindow = Boolean(
     reloadSession &&
       reloadAttempt === "none" &&
-      reloadSession.windows.some(
-        (window) =>
-          reloadElapsedMs >= window.startMs &&
-          reloadElapsedMs <= window.endMs,
+      reloadSession.windows.some((window) =>
+        isElapsedInWindow(reloadElapsedMs, window),
       ),
   );
   const reloadMeterStyle: ActiveReloadStyle | undefined = reloadSession
@@ -1394,6 +1879,22 @@ export function GameClient() {
       } as CSSProperties)
     : undefined;
   const handsOffReload = reloadMechanic === "hands-off";
+  const expectedVisualWindowIndex = reloadSession
+    ? reloadSession.mechanic === "triple-snap"
+      ? tripleSnapStep
+      : reloadSession.mechanic === "spiral-hold" ||
+          reloadSession.mechanic === "pop-launch"
+        ? reloadGestureKind
+          ? 1
+          : 0
+        : activeVisualWindowIndex
+    : -1;
+  const reloadActionReady = Boolean(
+    reloadSession &&
+      reloadAttempt === "none" &&
+      activeVisualWindowIndex >= 0 &&
+      activeVisualWindowIndex === expectedVisualWindowIndex,
+  );
   const reloadSecondsRemaining = reloadSession
     ? Math.min(
         3,
@@ -1403,13 +1904,64 @@ export function GameClient() {
         ),
       )
     : 0;
-  const reloadReadout = reloadInActiveWindow
-    ? "OPEN"
-    : reloadMechanic === "countdown" && reloadSession
-      ? String(reloadSecondsRemaining)
+  const reloadInteractionPrompt = reloadSession
+    ? reloadAttempt === "perfect"
+      ? "quick open!"
       : reloadAttempt === "missed"
-        ? "AUTO"
-        : `${Math.round(reloadProgress)}%`;
+        ? "timing missed · auto finishing"
+        : reloadSession.mechanic === "hands-off"
+          ? "hands off · settling"
+          : reloadSession.mechanic === "spiral-hold"
+            ? reloadGestureKind === "spiral-hold"
+              ? reloadActionReady
+                ? "glaze · release now!"
+                : "keep holding for glaze"
+              : reloadActionReady
+                ? "catch · press now!"
+                : "watch for catch"
+            : reloadSession.mechanic === "triple-snap"
+              ? reloadActionReady
+                ? `snap ${Math.min(3, tripleSnapStep + 1)} now!`
+                : `watch for snap ${Math.min(3, tripleSnapStep + 1)}`
+              : reloadSession.mechanic === "pop-launch"
+                ? reloadGestureKind === "pop-launch"
+                  ? reloadActionReady
+                    ? "party · swipe up!"
+                    : "pop armed · wait for party"
+                  : reloadActionReady
+                    ? "launch · press now!"
+                    : "watch for launch"
+                : reloadInActiveWindow
+                  ? "open now!"
+                  : "watch the timer"
+    : null;
+  const reloadReadout = reloadAttempt === "missed"
+    ? "AUTO"
+    : reloadMechanic === "spiral-hold" && reloadSession
+      ? reloadActionReady
+        ? reloadGestureKind
+          ? "GLAZE"
+          : "CATCH"
+        : reloadGestureKind
+          ? "HOLD"
+          : `${Math.round(reloadProgress)}%`
+      : reloadMechanic === "triple-snap" && reloadSession
+        ? reloadActionReady
+          ? "SNAP"
+          : `${tripleSnapStep}/3`
+        : reloadMechanic === "pop-launch" && reloadSession
+          ? reloadActionReady
+            ? reloadGestureKind
+              ? "UP!"
+              : "GO"
+            : reloadGestureKind
+              ? "ARMED"
+              : `${Math.round(reloadProgress)}%`
+          : reloadInActiveWindow
+            ? "OPEN"
+            : reloadMechanic === "countdown" && reloadSession
+              ? String(reloadSecondsRemaining)
+              : `${Math.round(reloadProgress)}%`;
   const convergeWindow = reloadSession?.windows[0] ?? null;
   const convergeMidpointMs = convergeWindow
     ? (convergeWindow.startMs + convergeWindow.endMs) / 2
@@ -1441,6 +1993,16 @@ export function GameClient() {
           ? `${reloadPack?.name ?? "The box"} is opening automatically.`
           : reloadAttempt === "missed"
             ? "Quick-open timing missed. The box will finish automatically."
+            : reloadSession.mechanic === "spiral-hold"
+              ? reloadGestureKind
+                ? "Keep holding, then release when GLAZE is active."
+                : "Press and hold when CATCH is active."
+              : reloadSession.mechanic === "triple-snap"
+                ? `Chocolate snap ${Math.min(3, tripleSnapStep + 1)} of 3. Activate on its beat.`
+                : reloadSession.mechanic === "pop-launch"
+                  ? reloadGestureKind
+                    ? "Swipe upward when PARTY is active. Keyboard players: press Arrow Up."
+                    : "Press when LAUNCH is active to arm the pop."
             : reloadInActiveWindow
               ? "Quick-open window active. Activate now."
               : reloadPack?.reload.instruction ?? "Watch the reload timer."
@@ -1454,9 +2016,13 @@ export function GameClient() {
           ? "No second click needed. Let the slow caramel pour finish on its own."
           : reloadAttempt === "missed"
             ? "Quick-open timing missed. Your full box will still open automatically."
+            : reloadSession.mechanic === "pop-launch"
+              ? `${reloadPack?.reload.instruction ?? "Launch the pop."} Keyboard: press Space or Enter on LAUNCH, then Arrow Up on PARTY.`
+              : reloadSession.mechanic === "spiral-hold"
+                ? `${reloadPack?.reload.instruction ?? "Hold for the spiral."} Keyboard: hold Space or Enter, then release on GLAZE.`
             : reloadPack?.reload.instruction ?? "Watch the timer for your opening."
         : reloadPack
-          ? `${reloadPack.quantity} sandwiches inside. ${reloadPack.reload.instruction}`
+          ? `${reloadPack.quantity} treats inside. ${reloadPack.reload.instruction}`
           : "Start the next box reload.";
   const reloadMeterValueText = reloadAttempt === "perfect"
     ? "Quick-open timing registered. Opening the box."
@@ -1464,8 +2030,8 @@ export function GameClient() {
       ? "Quick-open timing missed. Reload will finish automatically."
       : handsOffReload
         ? `Slow pour in progress, ${Math.round(reloadProgress)} percent.`
-        : reloadInActiveWindow
-          ? "Quick-open window. Activate the box now."
+        : reloadInteractionPrompt
+          ? `${reloadInteractionPrompt}, ${Math.round(reloadProgress)} percent.`
           : `${reloadPack?.reload.label ?? "Reload"}, ${Math.round(reloadProgress)} percent.`;
 
   return (
@@ -1551,6 +2117,20 @@ export function GameClient() {
             />
           ) : null}
 
+          {feedReaction ? (
+            <strong
+              className={`feed-reaction feed-reaction-${feedReaction.tone}${feedReaction.id % 2 === 0 ? " feed-reaction-tilt-right" : ""}`}
+              key={feedReaction.id}
+              style={{
+                left: `clamp(100px, ${feedReaction.x}px, calc(100% - 100px))`,
+                top: `max(96px, ${feedReaction.y}px)`,
+              }}
+              aria-hidden="true"
+            >
+              {feedReaction.message}
+            </strong>
+          ) : null}
+
           {packEmpty &&
           reloadPack &&
           !isFeeding &&
@@ -1568,7 +2148,7 @@ export function GameClient() {
                 <h2 id="pack-reload-title">{reloadPack.name}</h2>
                 <div className="pack-reload-meta" aria-hidden="true">
                   <strong>{reloadPack.quantity}</strong>
-                  <span>sandwiches</span>
+                  <span>treats</span>
                   <i />
                   <span>{reloadPack.reload.label}</span>
                 </div>
@@ -1578,9 +2158,15 @@ export function GameClient() {
               </div>
               <div className="pack-reload-control">
                 <button
-                  className="pack-box-button"
+                  className={`pack-box-button${reloadGestureKind ? " pack-box-button-interacting" : ""}`}
                   type="button"
                   onClick={handleOpenPack}
+                  onPointerDown={handlePackPointerDown}
+                  onPointerMove={handlePackPointerMove}
+                  onPointerUp={handlePackPointerUp}
+                  onPointerCancel={handlePackPointerCancel}
+                  onKeyDown={handlePackKeyDown}
+                  onKeyUp={handlePackKeyUp}
                   disabled={
                     isStartingReload ||
                     isCompletingReload ||
@@ -1592,6 +2178,13 @@ export function GameClient() {
                   }
                   aria-label={reloadButtonLabel}
                   aria-describedby="pack-reload-description"
+                  aria-keyshortcuts={
+                    reloadMechanic === "pop-launch"
+                      ? "Space Enter ArrowUp"
+                      : reloadMechanic === "spiral-hold"
+                        ? "Space Enter"
+                        : undefined
+                  }
                 >
                   <img
                     src={reloadPack.imageSrc}
@@ -1611,22 +2204,14 @@ export function GameClient() {
                       : isStartingReload
                         ? "starting…"
                         : reloadSession
-                          ? reloadAttempt === "perfect"
-                            ? "quick open!"
-                            : reloadAttempt === "missed"
-                              ? "timing missed · auto finishing"
-                              : handsOffReload
-                                ? "hands off · settling"
-                                : reloadInActiveWindow
-                                  ? "open now!"
-                                  : "watch the timer"
+                          ? reloadInteractionPrompt
                           : `start ${reloadPack.reload.label}`}
                   </span>
                 </button>
 
                 {reloadSession && reloadMeterStyle ? (
                   <div
-                    className={`active-reload-meter active-reload-meter-${reloadSession.mechanic}${reloadInActiveWindow ? " active-reload-meter-ready" : ""}${reloadAttempt === "perfect" ? " active-reload-meter-perfect" : ""}${reloadAttempt === "missed" ? " active-reload-meter-missed" : ""}`}
+                    className={`active-reload-meter active-reload-meter-${reloadSession.mechanic}${reloadActionReady ? " active-reload-meter-ready" : ""}${reloadGestureKind ? " active-reload-meter-interacting" : ""}${reloadAttempt === "perfect" ? " active-reload-meter-perfect" : ""}${reloadAttempt === "missed" ? " active-reload-meter-missed" : ""}`}
                     role="progressbar"
                     aria-label={`${reloadPack.reload.label} progress`}
                     aria-valuemin={0}
@@ -1636,9 +2221,9 @@ export function GameClient() {
                     style={reloadMeterStyle}
                   >
                     <span className="active-reload-fill" aria-hidden="true" />
-                    {reloadSession.windows.map((window, index) => (
+                    {reloadVisualWindows.map((window, index) => (
                       <span
-                        className={`active-reload-zone${reloadElapsedMs >= window.startMs && reloadElapsedMs <= window.endMs ? " active-reload-zone-live" : ""}`}
+                        className={`active-reload-zone${isElapsedInWindow(reloadElapsedMs, window) ? " active-reload-zone-live" : ""}${reloadSession.mechanic === "triple-snap" && index < tripleSnapStep ? " active-reload-zone-complete" : ""}${(reloadSession.mechanic === "spiral-hold" || reloadSession.mechanic === "pop-launch") && index === 0 && reloadGestureKind ? " active-reload-zone-complete" : ""}`}
                         key={`${window.startMs}-${window.endMs}`}
                         style={{
                           left: `${(window.startMs / reloadSession.durationMs) * 100}%`,
@@ -1681,9 +2266,7 @@ export function GameClient() {
                           ? "auto finish"
                           : handsOffReload
                             ? "hands off"
-                            : reloadInActiveWindow
-                              ? "click now"
-                              : "quick open"}
+                            : reloadInteractionPrompt ?? "quick open"}
                     </span>
                   </div>
                 ) : null}
@@ -1709,13 +2292,8 @@ export function GameClient() {
                 ? isStartingReload
                   ? `starting ${reloadPack?.reload.label ?? "reload"}`
                   : reloadSession
-                    ? handsOffReload
-                      ? "slow pour · hands off"
-                      : reloadAttempt === "missed"
-                        ? "quick open missed · auto finishing"
-                        : reloadInActiveWindow
-                          ? "open now!"
-                          : `${reloadPack?.reload.label ?? "reload"} · watch the timer`
+                    ? reloadInteractionPrompt ??
+                      `${reloadPack?.reload.label ?? "reload"} · watch the timer`
                     : `next · ${reloadPack?.shortName ?? "fresh box"} · click to start`
                 : `${player?.currentPack.shortName ?? "FatBoy"} · ${player?.sandwichesRemaining ?? 0}/${player?.currentPack.quantity ?? 0} left · tap the mouth`}
             </p>
