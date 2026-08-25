@@ -21,6 +21,13 @@ import {
   normalizedImagePointToStage,
   stagePointToNormalizedImage,
 } from "../lib/client/portrait-geometry";
+import {
+  getClearedPackHistory,
+  getDisplayedClearedPackCount,
+  type PackDefinition,
+  type ReloadMechanicId,
+  type ReloadWindow,
+} from "../lib/packs";
 
 const FatboyProjectile = dynamic(
   () =>
@@ -50,6 +57,9 @@ type Player = {
   displayName: string;
   sandwichesFed: number;
   sandwichesRemaining: number;
+  packsCleared: number;
+  currentPack: PackDefinition;
+  nextPack: PackDefinition;
   scoreVersion: number;
 };
 
@@ -101,9 +111,10 @@ type ApiFeedResponse = ApiGameResponse & {
 type ApiPackReloadStartResponse = {
   reload: {
     token: string;
+    pack: PackDefinition;
+    mechanic: ReloadMechanicId;
     durationMs: number;
-    activeStartMs: number;
-    activeEndMs: number;
+    windows: readonly ReloadWindow[];
   };
 };
 
@@ -116,8 +127,8 @@ type ReloadSession = ApiPackReloadStartResponse["reload"] & {
 
 type ActiveReloadStyle = CSSProperties & {
   "--reload-progress": string;
-  "--reload-zone-start": string;
-  "--reload-zone-width": string;
+  "--pack-accent": string;
+  "--pack-accent-soft": string;
 };
 
 type ApiLeaderboardResponse = {
@@ -243,17 +254,32 @@ function createReloadSession(
   responseReceivedAt: number,
 ): ReloadSession {
   const { reload } = data;
+  const windowsAreValid =
+    Array.isArray(reload?.windows) &&
+    reload.windows.every(
+      (window, index) =>
+        Number.isFinite(window.startMs) &&
+        window.startMs >= 0 &&
+        Number.isFinite(window.endMs) &&
+        window.endMs > window.startMs &&
+        window.endMs <= reload.durationMs &&
+        (index === 0 ||
+          reload.windows[index - 1].endMs < window.startMs),
+    );
   if (
     !reload ||
     typeof reload.token !== "string" ||
     reload.token.length === 0 ||
+    !reload.pack ||
+    typeof reload.pack.id !== "string" ||
+    typeof reload.pack.name !== "string" ||
+    !Number.isSafeInteger(reload.pack.quantity) ||
+    reload.pack.quantity <= 0 ||
+    reload.mechanic !== reload.pack.reload?.id ||
     !Number.isFinite(reload.durationMs) ||
     reload.durationMs <= 0 ||
-    !Number.isFinite(reload.activeStartMs) ||
-    reload.activeStartMs < 0 ||
-    !Number.isFinite(reload.activeEndMs) ||
-    reload.activeEndMs <= reload.activeStartMs ||
-    reload.activeEndMs > reload.durationMs
+    reload.durationMs !== reload.pack.reload.durationMs ||
+    !windowsAreValid
   ) {
     throw new Error("The reload response did not include valid timing data.");
   }
@@ -267,11 +293,9 @@ function createReloadSession(
   };
 }
 
-function getReloadSuccessMessage(treats: number) {
-  if (treats === 7) {
-    return "Perfect reload! Bonus treat added — seven ready.";
-  }
-  return `Fresh pack opened. ${numberFormatter.format(treats)} treats ready!`;
+function getReloadSuccessMessage(player: Player, quickOpen = false) {
+  const prefix = quickOpen ? "Quick open!" : `${player.currentPack.shortName} opened.`;
+  return `${prefix} ${numberFormatter.format(player.sandwichesRemaining)} treats ready.`;
 }
 
 function normalizeLeaderboardResponse(
@@ -381,6 +405,58 @@ function LeaderboardContents({
         );
       })}
     </ol>
+  );
+}
+
+function ClearedBoxStack({ count }: { count: number }) {
+  if (count <= 0) {
+    return null;
+  }
+
+  const boxes = getClearedPackHistory(count);
+
+  return (
+    <aside
+      className="cleared-boxes"
+      aria-label={`${numberFormatter.format(count)} empty ${count === 1 ? "box" : "boxes"} cleared`}
+    >
+      <p className="cleared-boxes-heading" aria-hidden="true">
+        <strong>{numberFormatter.format(count)}</strong>
+        <span>{count === 1 ? "box cleared" : "boxes cleared"}</span>
+      </p>
+      <ol
+        className="cleared-boxes-list"
+        aria-label="Cleared box history"
+        tabIndex={count > 10 ? 0 : undefined}
+      >
+        {boxes.map((pack, index) => {
+          const ordinal = index + 1;
+          return (
+            <li
+              className={`cleared-box${index === boxes.length - 1 ? " cleared-box-newest" : ""}`}
+              key={`${pack.id}-${ordinal}`}
+            >
+              <img
+                src={pack.imageSrc}
+                alt=""
+                width="1200"
+                height="1200"
+                loading={index > 5 ? "lazy" : "eager"}
+                decoding="async"
+                draggable={false}
+                aria-hidden="true"
+              />
+              <span className="cleared-box-stamp" aria-hidden="true">
+                empty
+              </span>
+              <span className="sr-only">
+                Cleared box {numberFormatter.format(ordinal)}: {pack.name}.
+              </span>
+            </li>
+          );
+        })}
+      </ol>
+    </aside>
   );
 }
 
@@ -766,6 +842,13 @@ export function GameClient() {
 
   const handleMiss = async (event: ReactMouseEvent<HTMLElement>) => {
     if (
+      event.target instanceof Element &&
+      event.target.closest(".cleared-boxes")
+    ) {
+      return;
+    }
+
+    if (
       !game ||
       !displayPortrait ||
       !("mouth" in displayPortrait) ||
@@ -990,6 +1073,7 @@ export function GameClient() {
       }
 
       try {
+        const quickOpen = reloadAttemptRef.current === "perfect";
         const result = normalizeGameResponse(
           await requestJson<ApiGameResponse>("/api/pack", {
             method: "POST",
@@ -1006,10 +1090,7 @@ export function GameClient() {
         resetReloadState();
         setGame(result);
         setDisplayPortrait(result.round.current);
-        showNotice(
-          getReloadSuccessMessage(result.player.sandwichesRemaining),
-          "success",
-        );
+        showNotice(getReloadSuccessMessage(result.player, quickOpen), "success");
       } catch (error) {
         if (reloadGenerationRef.current !== generation) {
           return;
@@ -1030,7 +1111,7 @@ export function GameClient() {
             reloadAttemptRef.current = "missed";
             setReloadAttempt("missed");
             setAnnouncement(
-              "Bonus timing missed. The pack will finish reloading normally.",
+              "The quick-open timing slipped. The box will finish automatically.",
             );
           } else {
             setAnnouncement("The pack needs another moment to finish reloading.");
@@ -1052,10 +1133,7 @@ export function GameClient() {
           setGame(synced);
           setDisplayPortrait(synced.round.current);
           if (synced.player.sandwichesRemaining > 0) {
-            showNotice(
-              getReloadSuccessMessage(synced.player.sandwichesRemaining),
-              "success",
-            );
+            showNotice(getReloadSuccessMessage(synced.player), "success");
           } else {
             showNotice(getFriendlyError(error), "error");
           }
@@ -1116,9 +1194,7 @@ export function GameClient() {
       setReloadElapsedMs(
         Math.min(session.durationMs, responseReceivedAt - session.startedAt),
       );
-      setAnnouncement(
-        "Reload started. Activate the box again when the marker enters the striped bonus zone.",
-      );
+      setAnnouncement(`Reload started. ${session.pack.reload.instruction}`);
     } catch (error) {
       if (reloadGenerationRef.current === generation) {
         try {
@@ -1129,10 +1205,7 @@ export function GameClient() {
           setGame(synced);
           setDisplayPortrait(synced.round.current);
           if (synced.player.sandwichesRemaining > 0) {
-            showNotice(
-              getReloadSuccessMessage(synced.player.sandwichesRemaining),
-              "success",
-            );
+            showNotice(getReloadSuccessMessage(synced.player), "success");
           } else {
             showNotice(getFriendlyError(error), "error");
           }
@@ -1202,9 +1275,13 @@ export function GameClient() {
       void startPackReload();
       return;
     }
+    if (session.mechanic === "hands-off") {
+      setAnnouncement("Hands off. The caramel pour will open this box automatically.");
+      return;
+    }
     if (reloadAttemptRef.current !== "none") {
       setAnnouncement(
-        "Your bonus timing attempt is already used. The pack will finish reloading automatically.",
+        "Your quick-open attempt is already used. The box will finish automatically.",
       );
       return;
     }
@@ -1213,10 +1290,15 @@ export function GameClient() {
       ? reloadElapsedMs
       : Math.max(0, performance.now() - session.startedAt);
     setReloadElapsedMs(Math.min(elapsedMs, session.durationMs));
-    if (elapsedMs >= session.activeStartMs && elapsedMs <= session.activeEndMs) {
+    if (
+      session.windows.some(
+        (window) =>
+          elapsedMs >= window.startMs && elapsedMs <= window.endMs,
+      )
+    ) {
       reloadAttemptRef.current = "perfect";
       setReloadAttempt("perfect");
-      setAnnouncement("Perfect timing registered. Opening the bonus pack.");
+      setAnnouncement("Quick-open timing locked. Opening the box now.");
       void finishPackReload(session);
       return;
     }
@@ -1224,7 +1306,7 @@ export function GameClient() {
     reloadAttemptRef.current = "missed";
     setReloadAttempt("missed");
     setAnnouncement(
-      "Bonus timing missed. The pack will finish reloading normally.",
+      "Quick-open timing missed. The box will finish automatically.",
     );
   };
 
@@ -1277,51 +1359,114 @@ export function GameClient() {
   const currentDisplayName = player?.displayName ?? null;
   const nicknameRequired = Boolean(!loading && game && !game.player.nickname);
   const packEmpty = player?.sandwichesRemaining === 0;
+  const clearedBoxesVisible = player
+    ? getDisplayedClearedPackCount(
+        player.packsCleared,
+        player.sandwichesRemaining,
+      )
+    : 0;
+  const reloadPack =
+    reloadSession?.pack ?? player?.nextPack ?? player?.currentPack ?? null;
+  const reloadMechanic = reloadSession?.mechanic ?? reloadPack?.reload.id ?? null;
   const reloadProgress = reloadSession
     ? Math.min(100, Math.max(0, (reloadElapsedMs / reloadSession.durationMs) * 100))
     : 0;
   const reloadInActiveWindow = Boolean(
     reloadSession &&
       reloadAttempt === "none" &&
-      reloadElapsedMs >= reloadSession.activeStartMs &&
-      reloadElapsedMs <= reloadSession.activeEndMs,
+      reloadSession.windows.some(
+        (window) =>
+          reloadElapsedMs >= window.startMs &&
+          reloadElapsedMs <= window.endMs,
+      ),
   );
   const reloadMeterStyle: ActiveReloadStyle | undefined = reloadSession
     ? {
         "--reload-progress": `${reloadProgress}%`,
-        "--reload-zone-start": `${(reloadSession.activeStartMs / reloadSession.durationMs) * 100}%`,
-        "--reload-zone-width": `${((reloadSession.activeEndMs - reloadSession.activeStartMs) / reloadSession.durationMs) * 100}%`,
+        "--pack-accent": reloadSession.pack.accent,
+        "--pack-accent-soft": reloadSession.pack.accentSoft,
       }
     : undefined;
+  const reloadThemeStyle = reloadPack
+    ? ({
+        "--pack-accent": reloadPack.accent,
+        "--pack-accent-soft": reloadPack.accentSoft,
+      } as CSSProperties)
+    : undefined;
+  const handsOffReload = reloadMechanic === "hands-off";
+  const reloadSecondsRemaining = reloadSession
+    ? Math.min(
+        3,
+        Math.max(
+          0,
+          Math.ceil((reloadSession.durationMs - reloadElapsedMs) / 1_000),
+        ),
+      )
+    : 0;
+  const reloadReadout = reloadInActiveWindow
+    ? "OPEN"
+    : reloadMechanic === "countdown" && reloadSession
+      ? String(reloadSecondsRemaining)
+      : reloadAttempt === "missed"
+        ? "AUTO"
+        : `${Math.round(reloadProgress)}%`;
+  const convergeWindow = reloadSession?.windows[0] ?? null;
+  const convergeMidpointMs = convergeWindow
+    ? (convergeWindow.startMs + convergeWindow.endMs) / 2
+    : reloadSession?.durationMs ?? 1;
+  const convergeProgress = reloadSession
+    ? Math.min(100, (reloadElapsedMs / convergeMidpointMs) * 100)
+    : 0;
+  const boxesUntilUnlock = player
+    ? Math.max(0, 3 - player.packsCleared)
+    : 0;
+  const twelvePackUnlocked = Boolean(
+    player?.packsCleared === 3 && reloadPack?.id === "vanilla-12",
+  );
+  const reloadEyebrow = twelvePackUnlocked
+    ? "New · 12-pack unlocked"
+    : boxesUntilUnlock > 0
+      ? `${boxesUntilUnlock} box${boxesUntilUnlock === 1 ? "" : "es"} to the 12-pack`
+      : reloadPack
+        ? `${reloadPack.quantity}-count · ${reloadPack.reload.label}`
+        : "Next box";
   const reloadButtonLabel = isCompletingReload
     ? reloadAttempt === "perfect"
-      ? "Perfect reload registered. Opening the bonus pack."
-      : "Opening the reloaded pack."
+      ? "Quick-open timing registered. Opening the box."
+      : "Opening the reloaded box."
     : isStartingReload
-      ? "Starting the pack reload."
+      ? `Starting ${reloadPack?.reload.label ?? "the reload"}.`
       : reloadSession
-        ? reloadAttempt === "missed"
-          ? "Bonus timing missed. The pack will reload automatically."
-          : reloadInActiveWindow
-            ? "Bonus window active. Activate now for one bonus treat."
-            : "Reloading. Activate again when the marker enters the striped bonus zone."
-        : "Start reloading a new FatBoy pack.";
+        ? handsOffReload
+          ? `${reloadPack?.name ?? "The box"} is opening automatically.`
+          : reloadAttempt === "missed"
+            ? "Quick-open timing missed. The box will finish automatically."
+            : reloadInActiveWindow
+              ? "Quick-open window active. Activate now."
+              : reloadPack?.reload.instruction ?? "Watch the reload timer."
+        : `Start ${reloadPack?.reload.label ?? "the next box reload"}.`;
   const reloadDescription = isCompletingReload
-    ? "Opening your reloaded pack."
+    ? `Opening ${reloadPack?.name ?? "your next box"}.`
     : isStartingReload
-      ? "Starting the reload timer."
+      ? `Starting the ${reloadPack?.reload.label ?? "reload"} timer.`
       : reloadSession
-        ? reloadAttempt === "missed"
-          ? "Timing missed. Your normal pack will finish reloading automatically."
-          : "Click the box again when the marker enters the striped gold zone for one bonus treat."
-        : "Click once to start reloading. Click again in the striped gold zone for one bonus treat; otherwise the pack reloads normally.";
+        ? handsOffReload
+          ? "No second click needed. Let the slow caramel pour finish on its own."
+          : reloadAttempt === "missed"
+            ? "Quick-open timing missed. Your full box will still open automatically."
+            : reloadPack?.reload.instruction ?? "Watch the timer for your opening."
+        : reloadPack
+          ? `${reloadPack.quantity} sandwiches inside. ${reloadPack.reload.instruction}`
+          : "Start the next box reload.";
   const reloadMeterValueText = reloadAttempt === "perfect"
-    ? "Perfect timing registered. Opening the pack."
+    ? "Quick-open timing registered. Opening the box."
     : reloadAttempt === "missed"
-      ? "Bonus timing missed. Reload will finish automatically."
-      : reloadInActiveWindow
-        ? "Bonus window. Activate the box now."
-        : `Reloading, ${Math.round(reloadProgress)} percent.`;
+      ? "Quick-open timing missed. Reload will finish automatically."
+      : handsOffReload
+        ? `Slow pour in progress, ${Math.round(reloadProgress)} percent.`
+        : reloadInActiveWindow
+          ? "Quick-open window. Activate the box now."
+          : `${reloadPack?.reload.label ?? "Reload"}, ${Math.round(reloadProgress)} percent.`;
 
   return (
     <div className="game-shell">
@@ -1390,6 +1535,7 @@ export function GameClient() {
 
           <FatboyProjectile
             target={shotUsesThree ? sandwichTarget : null}
+            splat={sandwichSplat}
             onReadyChange={setThreeProjectileReady}
             reducedMotion={reducedMotion}
           />
@@ -1405,42 +1551,27 @@ export function GameClient() {
             />
           ) : null}
 
-          {sandwichSplat ? (
-            <div
-              className="sandwich-splat"
-              key={sandwichSplat.id}
-              style={{ left: sandwichSplat.x, top: sandwichSplat.y }}
-              aria-hidden="true"
-            >
-              <span className="sandwich-splat-cream" />
-              <img
-                src="/brand/vanilla-sandwich.webp"
-                alt=""
-                width="700"
-                height="420"
-                draggable={false}
-              />
-            </div>
-          ) : null}
-
-          {packEmpty && !isFeeding && !sandwichSplat && !bootstrapError ? (
+          {packEmpty &&
+          reloadPack &&
+          !isFeeding &&
+          !sandwichSplat &&
+          !bootstrapError ? (
             <section
-              className={`pack-reload${isCompletingReload ? " pack-reload-opening" : ""}`}
+              className={`pack-reload pack-reload-${reloadMechanic ?? "precision"}${isCompletingReload ? " pack-reload-opening" : ""}${twelvePackUnlocked ? " pack-reload-unlocked" : ""}`}
               aria-labelledby="pack-reload-title"
               aria-describedby="pack-reload-description"
               onClick={(event) => event.stopPropagation()}
+              style={reloadThemeStyle}
             >
               <div className="pack-reload-copy">
-                <p>
-                  {reloadAttempt === "perfect"
-                    ? "Perfect reload"
-                    : reloadAttempt === "missed"
-                      ? "Standard reload"
-                      : reloadSession
-                        ? "Active reload"
-                        : "Pack empty"}
-                </p>
-                <h2 id="pack-reload-title">Reload a fresh pack.</h2>
+                <p>{reloadEyebrow}</p>
+                <h2 id="pack-reload-title">{reloadPack.name}</h2>
+                <div className="pack-reload-meta" aria-hidden="true">
+                  <strong>{reloadPack.quantity}</strong>
+                  <span>sandwiches</span>
+                  <i />
+                  <span>{reloadPack.reload.label}</span>
+                </div>
                 <span id="pack-reload-description">
                   {reloadDescription}
                 </span>
@@ -1450,18 +1581,30 @@ export function GameClient() {
                   className="pack-box-button"
                   type="button"
                   onClick={handleOpenPack}
-                  disabled={isStartingReload || isCompletingReload || offline}
+                  disabled={
+                    isStartingReload ||
+                    isCompletingReload ||
+                    offline ||
+                    Boolean(
+                      reloadSession &&
+                        (handsOffReload || reloadAttempt !== "none"),
+                    )
+                  }
                   aria-label={reloadButtonLabel}
                   aria-describedby="pack-reload-description"
                 >
                   <img
-                    src="/brand/fatboy-vanilla-6-pack.webp"
+                    src={reloadPack.imageSrc}
                     alt=""
-                    width="2048"
-                    height="2048"
+                    width="1200"
+                    height="1200"
                     draggable={false}
                     aria-hidden="true"
                   />
+                  <span className="pack-quantity-badge" aria-hidden="true">
+                    <strong>{reloadPack.quantity}</strong>
+                    <span>ready</span>
+                  </span>
                   <span className="pack-box-label">
                     {isCompletingReload
                       ? "opening…"
@@ -1469,49 +1612,85 @@ export function GameClient() {
                         ? "starting…"
                         : reloadSession
                           ? reloadAttempt === "perfect"
-                            ? "perfect reload!"
+                            ? "quick open!"
                             : reloadAttempt === "missed"
-                              ? "timing missed · reloading"
-                              : reloadInActiveWindow
-                                ? "now! · +1 treat"
-                                : "click in stripes · +1 treat"
-                          : "click to reload"}
+                              ? "timing missed · auto finishing"
+                              : handsOffReload
+                                ? "hands off · settling"
+                                : reloadInActiveWindow
+                                  ? "open now!"
+                                  : "watch the timer"
+                          : `start ${reloadPack.reload.label}`}
                   </span>
                 </button>
 
                 {reloadSession && reloadMeterStyle ? (
                   <div
-                    className={`active-reload-meter${reloadInActiveWindow ? " active-reload-meter-ready" : ""}${reloadAttempt === "perfect" ? " active-reload-meter-perfect" : ""}${reloadAttempt === "missed" ? " active-reload-meter-missed" : ""}`}
+                    className={`active-reload-meter active-reload-meter-${reloadSession.mechanic}${reloadInActiveWindow ? " active-reload-meter-ready" : ""}${reloadAttempt === "perfect" ? " active-reload-meter-perfect" : ""}${reloadAttempt === "missed" ? " active-reload-meter-missed" : ""}`}
                     role="progressbar"
-                    aria-label="Pack reload progress"
+                    aria-label={`${reloadPack.reload.label} progress`}
                     aria-valuemin={0}
                     aria-valuemax={100}
                     aria-valuenow={Math.round(reloadProgress)}
                     aria-valuetext={reloadMeterValueText}
                     style={reloadMeterStyle}
                   >
-                    <span className="active-reload-zone" aria-hidden="true" />
-                    <span
-                      className="active-reload-indicator"
-                      aria-hidden="true"
-                    />
+                    <span className="active-reload-fill" aria-hidden="true" />
+                    {reloadSession.windows.map((window, index) => (
+                      <span
+                        className={`active-reload-zone${reloadElapsedMs >= window.startMs && reloadElapsedMs <= window.endMs ? " active-reload-zone-live" : ""}`}
+                        key={`${window.startMs}-${window.endMs}`}
+                        style={{
+                          left: `${(window.startMs / reloadSession.durationMs) * 100}%`,
+                          width: `${((window.endMs - window.startMs) / reloadSession.durationMs) * 100}%`,
+                        }}
+                        aria-hidden="true"
+                      >
+                        <i>{index + 1}</i>
+                      </span>
+                    ))}
+                    {reloadSession.mechanic === "converge" ? (
+                      <>
+                        <span
+                          className="active-reload-indicator active-reload-indicator-left"
+                          style={{ left: `${convergeProgress / 2}%` }}
+                          aria-hidden="true"
+                        />
+                        <span
+                          className="active-reload-indicator active-reload-indicator-right"
+                          style={{ left: `${100 - convergeProgress / 2}%` }}
+                          aria-hidden="true"
+                        />
+                      </>
+                    ) : (
+                      <span
+                        className="active-reload-indicator"
+                        aria-hidden="true"
+                      />
+                    )}
+                    <strong className="active-reload-readout" aria-hidden="true">
+                      {reloadReadout}
+                    </strong>
                     <span
                       className="active-reload-zone-label"
                       aria-hidden="true"
                     >
                       {reloadAttempt === "perfect"
-                        ? "+1 locked"
+                        ? "opening early"
                         : reloadAttempt === "missed"
-                          ? "bonus missed"
-                          : reloadInActiveWindow
-                            ? "+1 now"
-                            : "+1 bonus"}
+                          ? "auto finish"
+                          : handsOffReload
+                            ? "hands off"
+                            : reloadInActiveWindow
+                              ? "click now"
+                              : "quick open"}
                     </span>
                   </div>
                 ) : null}
               </div>
             </section>
           ) : null}
+          <ClearedBoxStack count={clearedBoxesVisible} />
         </main>
 
         <header className="overlay-top">
@@ -1528,13 +1707,17 @@ export function GameClient() {
             <p className="game-instruction" id="mouth-instructions">
               {packEmpty
                 ? isStartingReload
-                  ? "pack empty · starting reload"
+                  ? `starting ${reloadPack?.reload.label ?? "reload"}`
                   : reloadSession
-                    ? reloadAttempt === "missed"
-                      ? "standard reload · finishing automatically"
-                      : "active reload · click in the stripes"
-                    : "pack empty · click the box"
-                : `tap the mouth · toss a 3D FatBoy · ${player?.sandwichesRemaining ?? 6} left`}
+                    ? handsOffReload
+                      ? "slow pour · hands off"
+                      : reloadAttempt === "missed"
+                        ? "quick open missed · auto finishing"
+                        : reloadInActiveWindow
+                          ? "open now!"
+                          : `${reloadPack?.reload.label ?? "reload"} · watch the timer`
+                    : `next · ${reloadPack?.shortName ?? "fresh box"} · click to start`
+                : `${player?.currentPack.shortName ?? "FatBoy"} · ${player?.sandwichesRemaining ?? 0}/${player?.currentPack.quantity ?? 0} left · tap the mouth`}
             </p>
           </div>
           <dl className="stats-line" aria-label="Game statistics">
@@ -1548,7 +1731,11 @@ export function GameClient() {
             </div>
             <div>
               <dt>pack</dt>
-              <dd>{player ? `${player.sandwichesRemaining} left` : "—"}</dd>
+              <dd>
+                {player
+                  ? `${player.sandwichesRemaining}/${player.currentPack.quantity}`
+                  : "—"}
+              </dd>
             </div>
             <div>
               <dt>streak</dt>

@@ -12,6 +12,7 @@ import {
   isPointInsideMouth,
   PACK_RELOAD_DURATION_MS,
 } from "../lib/server/game-rules.ts";
+import { PACK_CATALOG_VERSION } from "../lib/packs.ts";
 import {
   expiredSessionCookie,
   readCookie,
@@ -30,6 +31,9 @@ import {
 import {
   ADD_PACKS_OPENED_COLUMN_SQL,
   BACKFILL_PACKS_OPENED_SQL,
+  BACKFILL_PACK_TREATS_REMAINING_SQL,
+  REBUILD_PLAYERS_FOR_PACK_RELOAD_SQL,
+  shouldBackfillPackTreatsDuringRebuild,
 } from "../db/schema-maintenance.ts";
 
 const TEST_SECRET = "test-round-secret-that-is-at-least-32-bytes-long";
@@ -186,6 +190,8 @@ test("pack reload tokens verify, expire, reject tampering, and are domain-bound"
     playerId: "player-1",
     scoreVersion: 6,
     packsOpened: 1,
+    packId: "vanilla-6",
+    catalogVersion: PACK_CATALOG_VERSION,
     startedAtMs: 5_000,
     expiresAtMs: 10_000,
   };
@@ -225,6 +231,19 @@ test("pack reload tokens verify, expire, reject tampering, and are domain-bound"
     ok: false,
     reason: "invalid-signature",
   });
+
+  for (const requiredClaim of ["packId", "catalogVersion"]) {
+    const incompleteClaims = { ...claims };
+    delete incompleteClaims[requiredClaim];
+    const incompleteToken = await signPackReloadToken(
+      incompleteClaims,
+      TEST_SECRET,
+    );
+    assert.deepEqual(
+      await verifyPackReloadToken(incompleteToken, TEST_SECRET, 9_999),
+      { ok: false, reason: "malformed" },
+    );
+  }
 });
 
 test("session tokens are 256-bit bearer values and only hashes are stable", async () => {
@@ -315,7 +334,7 @@ test("migration is idempotent and leaderboard uses score-reached time", () => {
   database.close();
 });
 
-test("atomic throws spend a seven-treat pack, score only hits, and reject replay", () => {
+test("atomic throws spend a twelve-treat pack, score only hits, and reject replay", () => {
   const database = new DatabaseSync(":memory:");
   applyAllMigrations(database);
   database
@@ -325,7 +344,7 @@ test("atomic throws spend a seven-treat pack, score only hits, and reject replay
         sandwiches_thrown, packs_opened, pack_treats_remaining, score_version,
         current_image_id, next_image_id, last_accepted_at_ms, last_throw_at_ms,
         leaderboard_visible, created_at_ms, updated_at_ms
-      ) VALUES (?, ?, ?, ?, 0, 0, 1, 7, 0, ?, ?, null, null, 1, 0, 0)
+      ) VALUES (?, ?, ?, ?, 0, 0, 4, 12, 0, ?, ?, null, null, 1, 0, 0)
     `)
     .run("player", "session-hash", "Tester", "TEST", "portrait-a", "portrait-b");
 
@@ -381,7 +400,7 @@ test("atomic throws spend a seven-treat pack, score only hits, and reject replay
   assert.deepEqual({ ...first }, {
     sandwiches_fed: 1,
     sandwiches_thrown: 1,
-    pack_treats_remaining: 6,
+    pack_treats_remaining: 11,
     score_version: 1,
     current_image_id: "portrait-b",
     last_accepted_at_ms: 1_000,
@@ -425,16 +444,28 @@ test("atomic throws spend a seven-treat pack, score only hits, and reject replay
   assert.deepEqual({ ...missAtBoundary }, {
     sandwiches_fed: 1,
     sandwiches_thrown: 2,
-    pack_treats_remaining: 5,
+    pack_treats_remaining: 10,
     score_version: 2,
     current_image_id: "portrait-b",
     last_accepted_at_ms: 1_000,
     last_throw_at_ms: 1_200,
   });
 
-  const portraits = ["c", "d", "e", "f", "g", "h"];
+  const portraits = [
+    "c",
+    "d",
+    "e",
+    "f",
+    "g",
+    "h",
+    "i",
+    "j",
+    "k",
+    "l",
+    "m",
+  ];
   let currentPortrait = "portrait-b";
-  for (let index = 0; index < 5; index += 1) {
+  for (let index = 0; index < 10; index += 1) {
     const nowMs = 1_400 + index * 200;
     const nextPortrait = `portrait-${portraits[index]}`;
     const followingPortrait = `portrait-${portraits[index + 1]}`;
@@ -460,7 +491,7 @@ test("atomic throws spend a seven-treat pack, score only hits, and reject replay
       {
         sandwiches_fed: 2 + index,
         sandwiches_thrown: 3 + index,
-        pack_treats_remaining: 4 - index,
+        pack_treats_remaining: 9 - index,
         score_version: 3 + index,
       },
     );
@@ -469,20 +500,20 @@ test("atomic throws spend a seven-treat pack, score only hits, and reject replay
 
   assert.equal(
     atomicMiss.get(
-      2_400,
-      2_400,
+      3_400,
+      3_400,
       "player",
       "session-hash",
-      7,
+      12,
       currentPortrait,
-      2_200,
+      3_200,
     ),
     undefined,
   );
   database.close();
 });
 
-test("normal and perfect pack openings are atomic and cannot be replayed", () => {
+test("progression pack inventory writes are atomic and capped at twelve", () => {
   const database = new DatabaseSync(":memory:");
   applyAllMigrations(database);
   database
@@ -492,7 +523,7 @@ test("normal and perfect pack openings are atomic and cannot be replayed", () =>
         sandwiches_thrown, packs_opened, pack_treats_remaining, score_version,
         current_image_id, next_image_id, last_accepted_at_ms, last_throw_at_ms,
         leaderboard_visible, created_at_ms, updated_at_ms
-      ) VALUES ('player', 'session-hash', 'Tester', 'PACK', 5, 6, 1, 0, 6,
+      ) VALUES ('player', 'session-hash', 'Tester', 'PACK', 18, 18, 3, 0, 20,
         'portrait-a', 'portrait-b', 1000, 1200, 1, 0, 1200)
     `)
     .run();
@@ -509,32 +540,32 @@ test("normal and perfect pack openings are atomic and cannot be replayed", () =>
     RETURNING packs_opened, pack_treats_remaining, score_version
   `);
 
-  assert.deepEqual({ ...openPack.get(6, 6) }, {
-    packs_opened: 2,
-    pack_treats_remaining: 6,
-    score_version: 7,
+  assert.deepEqual({ ...openPack.get(12, 20) }, {
+    packs_opened: 4,
+    pack_treats_remaining: 12,
+    score_version: 21,
   });
-  assert.equal(openPack.get(7, 6), undefined);
+  assert.equal(openPack.get(6, 20), undefined);
 
   database.exec(
     `UPDATE players SET
-      sandwiches_fed = 11,
-      sandwiches_thrown = 12,
+      sandwiches_fed = 30,
+      sandwiches_thrown = 30,
       pack_treats_remaining = 0,
-      score_version = 13
+      score_version = 33
     WHERE id = 'player'`,
   );
-  assert.equal(openPack.get(6, 6), undefined);
-  assert.deepEqual({ ...openPack.get(7, 13) }, {
-    packs_opened: 3,
-    pack_treats_remaining: 7,
-    score_version: 14,
+  assert.throws(() => openPack.get(13, 33), /CHECK constraint failed/u);
+  assert.deepEqual({ ...openPack.get(6, 33) }, {
+    packs_opened: 5,
+    pack_treats_remaining: 6,
+    score_version: 34,
   });
-  assert.equal(openPack.get(6, 13), undefined);
+  assert.equal(openPack.get(4, 33), undefined);
   database.close();
 });
 
-test("0002 backfills legacy throws and explicit pack inventory with checks", () => {
+test("0002 backfills legacy inventory and 0003 raises its capacity to twelve", () => {
   const database = new DatabaseSync(":memory:");
   database.exec(baseMigration);
   const insert = database.prepare(`
@@ -606,10 +637,27 @@ test("0002 backfills legacy throws and explicit pack inventory with checks", () 
       },
     ],
   );
+  const capacityMigration = migrations.find(({ filename }) =>
+    filename.startsWith("0003_"),
+  );
+  assert.ok(
+    capacityMigration,
+    "Expected a 0003 twelve-treat capacity migration.",
+  );
+  database.exec(capacityMigration.sql);
+  database.exec(
+    "UPDATE players SET pack_treats_remaining = 12 WHERE id = 'player-0'",
+  );
+  assert.equal(
+    database
+      .prepare("SELECT pack_treats_remaining FROM players WHERE id = 'player-0'")
+      .get().pack_treats_remaining,
+    12,
+  );
   assert.throws(
     () =>
       database.exec(
-        "UPDATE players SET pack_treats_remaining = 8 WHERE id = 'player-0'",
+        "UPDATE players SET pack_treats_remaining = 13 WHERE id = 'player-0'",
       ),
     /CHECK constraint failed/u,
   );
@@ -667,6 +715,66 @@ test("a late pack migration preserves a pack opened by runtime bootstrap", () =>
       score_version: 7,
     },
   );
+  database.close();
+});
+
+test("runtime capacity upgrade preserves legacy bonus inventory and pack identity", () => {
+  const database = new DatabaseSync(":memory:");
+  database.exec(baseMigration);
+  database.exec(packMigration);
+  database.exec(packTreatsMigration());
+  database.exec(`
+    INSERT INTO players (
+      id, session_token_hash, nickname, public_tag, sandwiches_fed,
+      sandwiches_thrown, packs_opened, pack_treats_remaining, score_version,
+      current_image_id, next_image_id, last_accepted_at_ms, last_throw_at_ms,
+      leaderboard_visible, created_at_ms, updated_at_ms
+    ) VALUES
+      ('spent-bonus', 'hash-spent', 'Spent Bonus', 'SPNT', 13, 13, 2, 0, 14,
+        'a', 'b', 1000, 1000, 1, 0, 1000),
+      ('active-bonus', 'hash-active', 'Active Bonus', 'ACTV', 6, 6, 2, 7, 7,
+        'a', 'b', 1000, 1000, 1, 0, 1000)
+  `);
+
+  const definition = database
+    .prepare(
+      "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'players'",
+    )
+    .get().sql;
+  const shouldBackfill = shouldBackfillPackTreatsDuringRebuild(
+    definition,
+    false,
+  );
+  assert.equal(shouldBackfill, false);
+  if (shouldBackfill) {
+    database.exec(BACKFILL_PACK_TREATS_REMAINING_SQL);
+  }
+  for (const statement of REBUILD_PLAYERS_FOR_PACK_RELOAD_SQL) {
+    database.exec(statement);
+  }
+
+  assert.deepEqual(
+    database
+      .prepare(`
+        SELECT id, pack_treats_remaining, current_pack_id
+        FROM players ORDER BY id
+      `)
+      .all()
+      .map((row) => ({ ...row })),
+    [
+      {
+        id: "active-bonus",
+        pack_treats_remaining: 7,
+        current_pack_id: "vanilla-6",
+      },
+      {
+        id: "spent-bonus",
+        pack_treats_remaining: 0,
+        current_pack_id: "vanilla-6",
+      },
+    ],
+  );
+  assert.equal(database.prepare("PRAGMA integrity_check").get().integrity_check, "ok");
   database.close();
 });
 

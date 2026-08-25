@@ -5,7 +5,7 @@ import type {
 
 const SESSION_TOKEN_BYTES = 32;
 const HMAC_SIGNATURE_BYTES = 32;
-const PACK_RELOAD_TOKEN_DOMAIN = "fatboy.pack-reload.v1";
+const PACK_RELOAD_TOKEN_DOMAIN = "fatboy.pack-reload.v2";
 const encoder = new TextEncoder();
 
 export type RoundTokenVerification =
@@ -80,6 +80,8 @@ function isPackReloadTokenClaims(value: unknown): value is PackReloadTokenClaims
     "playerId",
     "scoreVersion",
     "packsOpened",
+    "packId",
+    "catalogVersion",
     "startedAtMs",
     "expiresAtMs",
   ]);
@@ -101,6 +103,14 @@ function isPackReloadTokenClaims(value: unknown): value is PackReloadTokenClaims
     typeof value.packsOpened === "number" &&
     Number.isSafeInteger(value.packsOpened) &&
     value.packsOpened >= 1 &&
+    "packId" in value &&
+    typeof value.packId === "string" &&
+    value.packId.length > 0 &&
+    value.packId.length <= 128 &&
+    "catalogVersion" in value &&
+    typeof value.catalogVersion === "number" &&
+    Number.isSafeInteger(value.catalogVersion) &&
+    value.catalogVersion > 0 &&
     "startedAtMs" in value &&
     typeof value.startedAtMs === "number" &&
     Number.isSafeInteger(value.startedAtMs) &&

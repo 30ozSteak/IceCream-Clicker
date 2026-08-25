@@ -33,14 +33,27 @@ export const BACKFILL_LAST_THROW_AT_SQL = `UPDATE players
 
 export const ADD_PACK_TREATS_REMAINING_COLUMN_SQL = `ALTER TABLE players
   ADD COLUMN pack_treats_remaining INTEGER NOT NULL DEFAULT 6
-  CHECK (pack_treats_remaining BETWEEN 0 AND 7)`;
+  CHECK (pack_treats_remaining BETWEEN 0 AND 12)`;
 
 export const BACKFILL_PACK_TREATS_REMAINING_SQL = `UPDATE players
   SET pack_treats_remaining = packs_opened * 6 - sandwiches_thrown`;
 
+export const ADD_CURRENT_PACK_ID_COLUMN_SQL = `ALTER TABLE players
+  ADD COLUMN current_pack_id TEXT NOT NULL DEFAULT 'vanilla-6'`;
+
+export function shouldBackfillPackTreatsDuringRebuild(
+  tableDefinition: string,
+  addedColumn: boolean,
+): boolean {
+  // A table with the old 0..7 constraint already has authoritative live
+  // inventory, including the former quick-open bonus. Recomputing that value
+  // from six-pack history can erase a bonus or produce -1 after it is spent.
+  return addedColumn || !tableDefinition.includes("BETWEEN 0 AND 7");
+}
+
 // SQLite cannot drop the legacy active-pack CHECK in place. Runtime bootstrap
 // rebuilds the table after adding/backfilling the gameplay columns so active
-// reload packs can safely hold seven treats while preserving existing scores.
+// progression packs can safely hold twelve treats while preserving scores.
 export const REBUILD_PLAYERS_FOR_PACK_RELOAD_SQL = [
   `DROP TABLE IF EXISTS __players_pack_reload`,
   `CREATE TABLE __players_pack_reload (
@@ -52,7 +65,8 @@ export const REBUILD_PLAYERS_FOR_PACK_RELOAD_SQL = [
     sandwiches_thrown INTEGER NOT NULL DEFAULT 0 CHECK (sandwiches_thrown >= 0),
     packs_opened INTEGER NOT NULL DEFAULT 1 CHECK (packs_opened >= 1),
     pack_treats_remaining INTEGER NOT NULL DEFAULT 6
-      CHECK (pack_treats_remaining BETWEEN 0 AND 7),
+      CHECK (pack_treats_remaining BETWEEN 0 AND 12),
+    current_pack_id TEXT NOT NULL DEFAULT 'vanilla-6',
     score_version INTEGER NOT NULL DEFAULT 0 CHECK (score_version >= 0),
     current_image_id TEXT NOT NULL,
     next_image_id TEXT NOT NULL,
@@ -70,12 +84,14 @@ export const REBUILD_PLAYERS_FOR_PACK_RELOAD_SQL = [
   )`,
   `INSERT INTO __players_pack_reload (
     id, session_token_hash, nickname, public_tag, sandwiches_fed,
-    sandwiches_thrown, packs_opened, pack_treats_remaining, score_version,
+    sandwiches_thrown, packs_opened, pack_treats_remaining, current_pack_id,
+    score_version,
     current_image_id, next_image_id, last_accepted_at_ms, last_throw_at_ms,
     leaderboard_visible, created_at_ms, updated_at_ms
   ) SELECT
     id, session_token_hash, nickname, public_tag, sandwiches_fed,
-    sandwiches_thrown, packs_opened, pack_treats_remaining, score_version,
+    sandwiches_thrown, packs_opened, pack_treats_remaining, 'vanilla-6',
+    score_version,
     current_image_id, next_image_id, last_accepted_at_ms, last_throw_at_ms,
     leaderboard_visible, created_at_ms, updated_at_ms
   FROM players`,

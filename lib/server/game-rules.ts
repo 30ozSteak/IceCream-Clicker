@@ -1,33 +1,48 @@
 import type { MouthTarget } from "../portraits";
 import type { RoundTokenClaims } from "../game-types";
+import { PACK_CATALOG, type PackDefinition } from "../packs.ts";
 
 export const MIN_FEED_INTERVAL_MS = 200;
-export const SANDWICHES_PER_PACK = 6;
-export const ACTIVE_RELOAD_BONUS_TREATS = 1;
-export const MAX_TREATS_PER_PACK =
-  SANDWICHES_PER_PACK + ACTIVE_RELOAD_BONUS_TREATS;
-export const PACK_RELOAD_DURATION_MS = 2_400;
-export const ACTIVE_RELOAD_START_MS = 1_320;
-export const ACTIVE_RELOAD_END_MS = 1_800;
+export const SANDWICHES_PER_PACK = PACK_CATALOG[0].quantity;
+export const PACK_RELOAD_DURATION_MS = PACK_CATALOG[0].reload.durationMs;
+export const ACTIVE_RELOAD_START_MS =
+  PACK_CATALOG[0].reload.windows[0].startMs;
+export const ACTIVE_RELOAD_END_MS = PACK_CATALOG[0].reload.windows[0].endMs;
 export const ACTIVE_RELOAD_END_GRACE_MS = 300;
 
 export type PackReloadTiming = "waiting" | "perfect" | "standard";
 
-export function classifyPackReload(elapsedMs: number): PackReloadTiming {
+export function classifyPackReload(
+  elapsedMs: number,
+  pack: PackDefinition = PACK_CATALOG[0],
+): PackReloadTiming {
   if (!Number.isFinite(elapsedMs)) {
     throw new Error("Reload timing must be a finite number.");
   }
 
-  if (elapsedMs < ACTIVE_RELOAD_START_MS) {
-    return "waiting";
-  }
-  if (elapsedMs <= ACTIVE_RELOAD_END_MS + ACTIVE_RELOAD_END_GRACE_MS) {
+  if (
+    pack.reload.windows.some(
+      (window) =>
+        elapsedMs >= window.startMs &&
+        elapsedMs <= window.endMs + ACTIVE_RELOAD_END_GRACE_MS,
+    )
+  ) {
     return "perfect";
   }
-  if (elapsedMs < PACK_RELOAD_DURATION_MS) {
+  if (elapsedMs < pack.reload.durationMs) {
     return "waiting";
   }
   return "standard";
+}
+
+export function nextReloadOpportunityMs(
+  elapsedMs: number,
+  pack: PackDefinition,
+): number {
+  const upcomingWindow = pack.reload.windows.find(
+    (window) => elapsedMs < window.startMs,
+  );
+  return upcomingWindow?.startMs ?? pack.reload.durationMs;
 }
 
 export function isNormalizedCoordinate(value: unknown): value is number {

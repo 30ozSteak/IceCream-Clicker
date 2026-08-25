@@ -1,4 +1,9 @@
 import type { Portrait } from "./portraits";
+import type {
+  PackDefinition,
+  ReloadMechanicId,
+  ReloadWindow,
+} from "./packs";
 
 export interface PlayerState {
   nickname: string | null;
@@ -6,6 +11,9 @@ export interface PlayerState {
   displayName: string;
   sandwichesFed: number;
   sandwichesRemaining: number;
+  packsCleared: number;
+  currentPack: PackDefinition;
+  nextPack: PackDefinition;
   scoreVersion: number;
 }
 
@@ -51,9 +59,10 @@ export interface CompletePackReloadRequest {
 export interface PackReloadStartResponse {
   reload: {
     token: string;
+    pack: PackDefinition;
+    mechanic: ReloadMechanicId;
     durationMs: number;
-    activeStartMs: number;
-    activeEndMs: number;
+    windows: readonly ReloadWindow[];
   };
 }
 
@@ -95,6 +104,8 @@ export interface PackReloadTokenClaims {
   playerId: string;
   scoreVersion: number;
   packsOpened: number;
+  packId: string;
+  catalogVersion: number;
   startedAtMs: number;
   expiresAtMs: number;
 }

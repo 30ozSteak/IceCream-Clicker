@@ -34,7 +34,7 @@ test("the reviewed portrait manifest is local, complete, and normalized", async 
   assert.doesNotMatch(manifest, /https?:\/\//i);
 });
 
-test("approved brand assets and provenance are present", async () => {
+test("approved brand assets and exact provenance are present", async () => {
   const manifest = await readFile(new URL("lib/portraits.ts", projectRoot), "utf8");
   const provenance = await readFile(
     new URL("public/THIRD_PARTY_ASSETS.md", projectRoot),
@@ -44,6 +44,11 @@ test("approved brand assets and provenance are present", async () => {
   for (const path of [
     "public/brand/fatboy-logo.png",
     "public/brand/fatboy-vanilla-6-pack.webp",
+    "public/brand/fatboy-vanilla-12-pack.webp",
+    "public/brand/fatboy-cookies-cream-6-pack.webp",
+    "public/brand/fatboy-caramel-cashew-4-pack.webp",
+    "public/brand/fatboy-sugar-cookie-6-pack.webp",
+    "public/brand/fatboy-caramel-cookies-cream-4-pack.webp",
     "public/brand/vanilla-sandwich.webp",
     "public/og-3d.png",
   ]) {
@@ -52,6 +57,21 @@ test("approved brand assets and provenance are present", async () => {
   }
 
   assert.match(provenance, /FatBoy Broker Resource Center/);
+  assert.match(provenance, /Smart & Final/);
+  for (const sourceUrl of [
+    "https://www.smartandfinal.com/product/fatboy-ice-cream-sandwiches-vanilla-premium-id-00077865001015",
+    "https://storage.googleapis.com/images-che-prd-2b77e46.che.prd.v8.commerce.mi9cloud.com/product-images/zoom/dab52390-77dc-48e5-940d-120ddf8144b5.jpeg",
+    "https://fatboyicecream.com/fatboy-cookies-n-cream-sandwich/",
+    "https://fatboyicecream.com/wp-content/uploads/2023/10/FB-SandwichCookiesNCream-6ct-3dbox-02.png",
+    "https://fatboyicecream.com/fatboy-caramel-cashew-cookie-sandwich/",
+    "https://fatboyicecream.com/wp-content/uploads/2024/02/FB-CarCash-CookieBox.png",
+    "https://fatboyicecream.com/fatboy-sugar-cookie-sandwich/",
+    "https://fatboyicecream.com/wp-content/uploads/2023/10/FB-SandwichSugarCookie-6ct-3dbox-05.png",
+    "https://fatboyicecream.com/fatboy-caramel-cookies-n-cream-cookie-sandwich/",
+    "https://fatboyicecream.com/wp-content/uploads/2024/02/FB-CNC-CookieBox.png",
+  ]) {
+    assert.ok(provenance.includes(sourceUrl), `${sourceUrl} is not documented`);
+  }
   const documentedCount = provenance.match(/All (\d+) entries.*visually reviewed/is);
   assert.ok(documentedCount, "portrait review count is documented");
   assert.equal(

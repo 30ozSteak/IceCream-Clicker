@@ -2,6 +2,7 @@ import { env } from "cloudflare:workers";
 import { drizzle } from "drizzle-orm/d1";
 import * as schema from "./schema";
 import {
+  ADD_CURRENT_PACK_ID_COLUMN_SQL,
   ADD_LAST_THROW_AT_COLUMN_SQL,
   ADD_PACK_TREATS_REMAINING_COLUMN_SQL,
   ADD_PACKS_OPENED_COLUMN_SQL,
@@ -11,6 +12,7 @@ import {
   BACKFILL_PACK_TREATS_REMAINING_SQL,
   BACKFILL_SANDWICHES_THROWN_SQL,
   REBUILD_PLAYERS_FOR_PACK_RELOAD_SQL,
+  shouldBackfillPackTreatsDuringRebuild,
 } from "./schema-maintenance";
 
 const GAME_SCHEMA_STATEMENTS = [
@@ -23,7 +25,8 @@ const GAME_SCHEMA_STATEMENTS = [
     sandwiches_thrown INTEGER NOT NULL DEFAULT 0 CHECK (sandwiches_thrown >= 0),
     packs_opened INTEGER NOT NULL DEFAULT 1 CHECK (packs_opened >= 1),
     pack_treats_remaining INTEGER NOT NULL DEFAULT 6
-      CHECK (pack_treats_remaining BETWEEN 0 AND 7),
+      CHECK (pack_treats_remaining BETWEEN 0 AND 12),
+    current_pack_id TEXT NOT NULL DEFAULT 'vanilla-6',
     score_version INTEGER NOT NULL DEFAULT 0 CHECK (score_version >= 0),
     current_image_id TEXT NOT NULL,
     next_image_id TEXT NOT NULL,
@@ -173,15 +176,18 @@ async function ensurePackReloadStateSchema(
   const needsRebuild =
     addedColumn ||
     definition.includes("players_active_pack_window") ||
+    definition.includes("BETWEEN 0 AND 7") ||
     !definition.includes("players_score_not_above_throws");
   if (!needsRebuild) {
     return;
   }
 
   // The column can become visible to a concurrent request before the request
-  // that added it reaches its backfill. Repeating this legacy-only calculation
-  // before removing the old constraint makes an interrupted upgrade resumable.
-  await d1.prepare(BACKFILL_PACK_TREATS_REMAINING_SQL).run();
+  // that added it reaches its backfill. Repeat the calculation only for that
+  // legacy path; the prior 0..7 schema already stores authoritative inventory.
+  if (shouldBackfillPackTreatsDuringRebuild(definition, addedColumn)) {
+    await d1.prepare(BACKFILL_PACK_TREATS_REMAINING_SQL).run();
+  }
 
   try {
     await d1.batch(
@@ -196,6 +202,7 @@ async function ensurePackReloadStateSchema(
     const refreshedColumns = await playerColumnNames(d1);
     if (
       refreshedDefinition.includes("players_active_pack_window") ||
+      refreshedDefinition.includes("BETWEEN 0 AND 7") ||
       !refreshedDefinition.includes("players_score_not_above_throws") ||
       !refreshedColumns.has("pack_treats_remaining")
     ) {
@@ -205,6 +212,28 @@ async function ensurePackReloadStateSchema(
 
   console.info(
     JSON.stringify({ message: "game_schema_upgraded", feature: "pack_reload" }),
+  );
+}
+
+async function ensureCurrentPackIdentitySchema(
+  d1: D1Database,
+  columns: Set<string>,
+): Promise<void> {
+  if (columns.has("current_pack_id")) {
+    return;
+  }
+
+  try {
+    await d1.prepare(ADD_CURRENT_PACK_ID_COLUMN_SQL).run();
+  } catch (error) {
+    const refreshedColumns = await playerColumnNames(d1);
+    if (!refreshedColumns.has("current_pack_id")) {
+      throw error;
+    }
+  }
+
+  console.info(
+    JSON.stringify({ message: "game_schema_upgraded", column: "current_pack_id" }),
   );
 }
 
@@ -223,4 +252,6 @@ export async function ensureGameSchema(): Promise<void> {
   columns = await ensurePackStateSchema(d1, columns);
   columns = await ensureThrowStateSchema(d1, columns);
   await ensurePackReloadStateSchema(d1, columns);
+  columns = await playerColumnNames(d1);
+  await ensureCurrentPackIdentitySchema(d1, columns);
 }

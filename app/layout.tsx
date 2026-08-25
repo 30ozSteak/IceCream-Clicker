@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 const description =
-  "Tap the mouth, toss a 3D FatBoy ice cream sandwich, and climb the global leaderboard.";
+  "Clear FatBoy boxes, unlock the 12-pack, master six reload challenges, and climb the global leaderboard.";
 
 function metadataOrigin(requestHeaders: Headers): URL {
   const forwardedHost = requestHeaders.get("x-forwarded-host")?.split(",")[0];
@@ -40,7 +40,7 @@ function metadataOrigin(requestHeaders: Headers): URL {
 
 export async function generateMetadata(): Promise<Metadata> {
   const origin = metadataOrigin(await headers());
-  const socialImage = new URL("/og-3d.png", origin).toString();
+  const socialImage = new URL("/og.png", origin).toString();
 
   return {
     metadataBase: origin,
@@ -59,9 +59,9 @@ export async function generateMetadata(): Promise<Metadata> {
       images: [
         {
           url: socialImage,
-          width: 1727,
-          height: 911,
-          alt: "FatBoy Clicker — tap, toss, climb",
+          width: 1200,
+          height: 630,
+          alt: "FatBoy Clicker — open, toss, unlock",
         },
       ],
     },

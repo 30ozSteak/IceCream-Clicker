@@ -6,6 +6,7 @@ import {
   sqliteTable,
   text,
 } from "drizzle-orm/sqlite-core";
+import { MAX_PACK_QUANTITY } from "../lib/packs";
 
 export const players = sqliteTable(
   "players",
@@ -18,6 +19,7 @@ export const players = sqliteTable(
     sandwichesThrown: integer("sandwiches_thrown").notNull().default(0),
     packsOpened: integer("packs_opened").notNull().default(1),
     packTreatsRemaining: integer("pack_treats_remaining").notNull().default(6),
+    currentPackId: text("current_pack_id").notNull().default("vanilla-6"),
     scoreVersion: integer("score_version").notNull().default(0),
     currentImageId: text("current_image_id").notNull(),
     nextImageId: text("next_image_id").notNull(),
@@ -45,7 +47,7 @@ export const players = sqliteTable(
     check("players_packs_opened_positive", sql`${table.packsOpened} >= 1`),
     check(
       "players_pack_treats_remaining_range",
-      sql`${table.packTreatsRemaining} BETWEEN 0 AND 7`,
+      sql`${table.packTreatsRemaining} BETWEEN 0 AND ${sql.raw(String(MAX_PACK_QUANTITY))}`,
     ),
     check("players_score_version_nonnegative", sql`${table.scoreVersion} >= 0`),
     check(

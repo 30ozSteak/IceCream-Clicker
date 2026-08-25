@@ -16,6 +16,14 @@ import {
   PORTRAIT_BY_ID,
   type Portrait,
 } from "../portraits";
+import {
+  getPackById,
+  getPackForOrdinal,
+  getPacksCleared,
+  PACK_CATALOG,
+  PACK_CATALOG_VERSION,
+  type PackDefinition,
+} from "../packs";
 import type {
   DeletePlayerResponse,
   FeedRequest,
@@ -30,16 +38,13 @@ import type {
 } from "../game-types";
 import { ApiError } from "./api-error";
 import {
-  ACTIVE_RELOAD_END_MS,
-  ACTIVE_RELOAD_START_MS,
   claimsMatchRound,
   classifyPackReload,
   feedWaitMs,
   isNormalizedCoordinate,
   isPointInsideMouth,
-  MAX_TREATS_PER_PACK,
   MIN_FEED_INTERVAL_MS,
-  PACK_RELOAD_DURATION_MS,
+  nextReloadOpportunityMs,
   SANDWICHES_PER_PACK,
 } from "./game-rules";
 import { readCookie, SESSION_COOKIE_NAME } from "./http";
@@ -78,12 +83,27 @@ function displayName(player: Pick<PlayerRow, "nickname" | "publicTag">): string 
 }
 
 function playerState(player: PlayerRow): PlayerState {
+  const storedCurrentPack =
+    getPackById(player.currentPackId) ?? PACK_CATALOG[0];
+  // The previous game could award a seventh treat in a printed six-pack.
+  // Preserve that earned inventory without showing an impossible 7/6 counter;
+  // newly opened progression boxes always use their printed quantity exactly.
+  const currentPack =
+    player.packTreatsRemaining > storedCurrentPack.quantity
+      ? { ...storedCurrentPack, quantity: player.packTreatsRemaining }
+      : storedCurrentPack;
   return {
     nickname: player.nickname,
     publicTag: player.publicTag,
     displayName: displayName(player),
     sandwichesFed: player.sandwichesFed,
     sandwichesRemaining: player.packTreatsRemaining,
+    packsCleared: getPacksCleared(
+      player.packsOpened,
+      player.packTreatsRemaining,
+    ),
+    currentPack,
+    nextPack: getPackForOrdinal(player.packsOpened + 1),
     scoreVersion: player.scoreVersion,
   };
 }
@@ -190,6 +210,7 @@ async function createPlayer(
           sandwichesThrown: 0,
           packsOpened: 1,
           packTreatsRemaining: SANDWICHES_PER_PACK,
+          currentPackId: PACK_CATALOG[0].id,
           scoreVersion: 0,
           currentImageId: current.id,
           nextImageId: next.id,
@@ -639,15 +660,16 @@ function reloadAlreadyCompleted(
   return (
     player.scoreVersion === claims.scoreVersion + 1 &&
     player.packsOpened === claims.packsOpened + 1 &&
+    player.currentPackId === claims.packId &&
     player.packTreatsRemaining > 0
   );
 }
 
-function reloadTooEarlyError(elapsedMs: number): ApiError {
-  const nextAllowedAtMs =
-    elapsedMs < ACTIVE_RELOAD_START_MS
-      ? ACTIVE_RELOAD_START_MS
-      : PACK_RELOAD_DURATION_MS;
+function reloadTooEarlyError(
+  elapsedMs: number,
+  pack: PackDefinition,
+): ApiError {
+  const nextAllowedAtMs = nextReloadOpportunityMs(elapsedMs, pack);
   return new ApiError(
     425,
     "RELOAD_TOO_EARLY",
@@ -692,12 +714,15 @@ export async function openNextPack(
     }
 
     const startedAtMs = Date.now();
+    const targetPack = getPackForOrdinal(session.player.packsOpened + 1);
     const token = await signPackReloadToken(
       {
         kind: "pack-reload",
         playerId: session.player.id,
         scoreVersion: session.player.scoreVersion,
         packsOpened: session.player.packsOpened,
+        packId: targetPack.id,
+        catalogVersion: PACK_CATALOG_VERSION,
         startedAtMs,
         expiresAtMs: startedAtMs + PACK_RELOAD_TOKEN_TTL_MS,
       },
@@ -706,9 +731,10 @@ export async function openNextPack(
     return {
       reload: {
         token,
-        durationMs: PACK_RELOAD_DURATION_MS,
-        activeStartMs: ACTIVE_RELOAD_START_MS,
-        activeEndMs: ACTIVE_RELOAD_END_MS,
+        pack: targetPack,
+        mechanic: targetPack.reload.id,
+        durationMs: targetPack.reload.durationMs,
+        windows: targetPack.reload.windows,
       },
     };
   }
@@ -728,6 +754,16 @@ export async function openNextPack(
       400,
       "INVALID_RELOAD_TOKEN",
       "The reload token is invalid.",
+    );
+  }
+
+  const targetPack = getPackForOrdinal(claims.packsOpened + 1);
+  if (
+    claims.catalogVersion !== PACK_CATALOG_VERSION ||
+    claims.packId !== targetPack.id
+  ) {
+    throw packStaleError(
+      "That box lineup changed before it could be opened. Start a new reload.",
     );
   }
 
@@ -751,18 +787,18 @@ export async function openNextPack(
   }
 
   const elapsedMs = nowMs - claims.startedAtMs;
-  const timing = classifyPackReload(elapsedMs);
+  const timing = classifyPackReload(elapsedMs, targetPack);
   if (timing === "waiting") {
-    throw reloadTooEarlyError(elapsedMs);
+    throw reloadTooEarlyError(elapsedMs, targetPack);
   }
-  const treats =
-    timing === "perfect" ? MAX_TREATS_PER_PACK : SANDWICHES_PER_PACK;
+  const treats = targetPack.quantity;
 
   const [updated] = await db
     .update(players)
     .set({
       packsOpened: sql`${players.packsOpened} + 1`,
       packTreatsRemaining: treats,
+      currentPackId: targetPack.id,
       scoreVersion: sql`${players.scoreVersion} + 1`,
       updatedAtMs: nowMs,
     })
