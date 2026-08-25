@@ -393,6 +393,8 @@ export function GameClient() {
   const [streak, setStreak] = useState(0);
   const [isFeeding, setIsFeeding] = useState(false);
   const [isOpeningPack, setIsOpeningPack] = useState(false);
+  const [threeProjectileReady, setThreeProjectileReady] = useState(false);
+  const [shotUsesThree, setShotUsesThree] = useState(false);
   const [geometry, setGeometry] = useState<CoverGeometry | null>(null);
   const [sandwichTarget, setSandwichTarget] = useState<{
     x: number;
@@ -649,6 +651,7 @@ export function GameClient() {
 
     feedLockRef.current = true;
     setIsFeeding(true);
+    setShotUsesThree(threeProjectileReady);
 
     const snapshot = game;
     const previousGlobalTotal = globalTotal;
@@ -899,9 +902,21 @@ export function GameClient() {
           ) : null}
 
           <FatboyProjectile
-            target={sandwichTarget}
+            target={shotUsesThree ? sandwichTarget : null}
+            onReadyChange={setThreeProjectileReady}
             reducedMotion={reducedMotion}
           />
+          {sandwichTarget && !shotUsesThree ? (
+            <img
+              className="sandwich-flight"
+              src="/brand/vanilla-sandwich.webp"
+              alt=""
+              width="700"
+              height="420"
+              style={{ left: sandwichTarget.x, top: sandwichTarget.y }}
+              aria-hidden="true"
+            />
+          ) : null}
 
           {packEmpty && !isFeeding && !bootstrapError ? (
             <section

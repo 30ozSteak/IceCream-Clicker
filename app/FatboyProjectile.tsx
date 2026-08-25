@@ -15,6 +15,7 @@ type Point = {
 
 type FatboyProjectileProps = {
   modelUrl?: string;
+  onReadyChange?: (ready: boolean) => void;
   reducedMotion: boolean;
   target: Point | null;
 };
@@ -92,6 +93,7 @@ function quadraticPoint(
 
 export function FatboyProjectile({
   modelUrl = FATBOY_MODELS.vanilla,
+  onReadyChange,
   reducedMotion,
   target,
 }: FatboyProjectileProps) {
@@ -106,6 +108,10 @@ export function FatboyProjectile({
     loadState.modelUrl === modelUrl ? loadState.status : "loading";
   const targetX = target?.x;
   const targetY = target?.y;
+
+  useEffect(() => {
+    onReadyChange?.(loadStatus === "ready");
+  }, [loadStatus, onReadyChange]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -179,9 +185,19 @@ export function FatboyProjectile({
 
     const handleContextLost = (event: Event) => {
       event.preventDefault();
+      if (runtime.model) {
+        runtime.model.visible = false;
+      }
       setLoadState({ modelUrl, status: "failed" });
     };
+    const handleContextRestored = () => {
+      if (!disposed && runtime.model) {
+        renderer.render(scene, camera);
+        setLoadState({ modelUrl, status: "ready" });
+      }
+    };
     canvas.addEventListener("webglcontextlost", handleContextLost);
+    canvas.addEventListener("webglcontextrestored", handleContextRestored);
 
     const loader = new GLTFLoader();
     loader.setMeshoptDecoder(MeshoptDecoder);
@@ -242,6 +258,7 @@ export function FatboyProjectile({
       disposed = true;
       resizeObserver.disconnect();
       canvas.removeEventListener("webglcontextlost", handleContextLost);
+      canvas.removeEventListener("webglcontextrestored", handleContextRestored);
       if (animationFrameRef.current !== null) {
         window.cancelAnimationFrame(animationFrameRef.current);
         animationFrameRef.current = null;
@@ -303,7 +320,7 @@ export function FatboyProjectile({
     }
 
     const startedAt = performance.now();
-    const duration = 210;
+    const duration = 180;
     const animate = (now: number) => {
       const linearProgress = Math.min(1, (now - startedAt) / duration);
       const progress = 1 - Math.pow(1 - linearProgress, 2.35);
