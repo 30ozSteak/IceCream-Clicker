@@ -1,0 +1,31 @@
+CREATE TABLE "players" (
+	"id" text PRIMARY KEY NOT NULL,
+	"session_token_hash" text NOT NULL,
+	"nickname" text,
+	"public_tag" text NOT NULL,
+	"sandwiches_fed" bigint DEFAULT 0 NOT NULL,
+	"sandwiches_thrown" bigint DEFAULT 0 NOT NULL,
+	"packs_opened" bigint DEFAULT 1 NOT NULL,
+	"pack_treats_remaining" integer DEFAULT 6 NOT NULL,
+	"current_pack_id" text DEFAULT 'vanilla-6' NOT NULL,
+	"score_version" bigint DEFAULT 0 NOT NULL,
+	"current_image_id" text NOT NULL,
+	"next_image_id" text NOT NULL,
+	"last_accepted_at_ms" bigint,
+	"last_throw_at_ms" bigint,
+	"leaderboard_visible" boolean DEFAULT true NOT NULL,
+	"created_at_ms" bigint NOT NULL,
+	"updated_at_ms" bigint NOT NULL,
+	CONSTRAINT "players_session_token_hash_unique" UNIQUE("session_token_hash"),
+	CONSTRAINT "players_public_tag_unique" UNIQUE("public_tag"),
+	CONSTRAINT "players_public_tag_length" CHECK (length("players"."public_tag") = 4),
+	CONSTRAINT "players_sandwiches_nonnegative" CHECK ("players"."sandwiches_fed" >= 0),
+	CONSTRAINT "players_sandwiches_thrown_nonnegative" CHECK ("players"."sandwiches_thrown" >= 0),
+	CONSTRAINT "players_score_not_above_throws" CHECK ("players"."sandwiches_fed" <= "players"."sandwiches_thrown"),
+	CONSTRAINT "players_packs_opened_positive" CHECK ("players"."packs_opened" >= 1),
+	CONSTRAINT "players_pack_treats_remaining_range" CHECK ("players"."pack_treats_remaining" BETWEEN 0 AND 12),
+	CONSTRAINT "players_score_version_nonnegative" CHECK ("players"."score_version" >= 0),
+	CONSTRAINT "players_distinct_images" CHECK ("players"."current_image_id" <> "players"."next_image_id")
+);
+--> statement-breakpoint
+CREATE INDEX "players_leaderboard_idx" ON "players" USING btree ("sandwiches_fed" DESC,coalesce("last_accepted_at_ms", "created_at_ms"),"id") WHERE "players"."leaderboard_visible" = true;

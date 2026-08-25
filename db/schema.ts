@@ -1,37 +1,43 @@
 import { sql } from "drizzle-orm";
 import {
+  bigint,
+  boolean,
   check,
   index,
   integer,
-  sqliteTable,
+  pgTable,
   text,
-} from "drizzle-orm/sqlite-core";
+} from "drizzle-orm/pg-core";
 import { MAX_PACK_QUANTITY } from "../lib/packs";
 
-export const players = sqliteTable(
+export const players = pgTable(
   "players",
   {
     id: text("id").primaryKey(),
     sessionTokenHash: text("session_token_hash").notNull().unique(),
     nickname: text("nickname"),
     publicTag: text("public_tag").notNull().unique(),
-    sandwichesFed: integer("sandwiches_fed").notNull().default(0),
-    sandwichesThrown: integer("sandwiches_thrown").notNull().default(0),
-    packsOpened: integer("packs_opened").notNull().default(1),
+    sandwichesFed: bigint("sandwiches_fed", { mode: "number" })
+      .notNull()
+      .default(0),
+    sandwichesThrown: bigint("sandwiches_thrown", { mode: "number" })
+      .notNull()
+      .default(0),
+    packsOpened: bigint("packs_opened", { mode: "number" })
+      .notNull()
+      .default(1),
     packTreatsRemaining: integer("pack_treats_remaining").notNull().default(6),
     currentPackId: text("current_pack_id").notNull().default("vanilla-6"),
-    scoreVersion: integer("score_version").notNull().default(0),
+    scoreVersion: bigint("score_version", { mode: "number" })
+      .notNull()
+      .default(0),
     currentImageId: text("current_image_id").notNull(),
     nextImageId: text("next_image_id").notNull(),
-    lastAcceptedAtMs: integer("last_accepted_at_ms"),
-    lastThrowAtMs: integer("last_throw_at_ms"),
-    leaderboardVisible: integer("leaderboard_visible", {
-      mode: "boolean",
-    })
-      .notNull()
-      .default(true),
-    createdAtMs: integer("created_at_ms").notNull(),
-    updatedAtMs: integer("updated_at_ms").notNull(),
+    lastAcceptedAtMs: bigint("last_accepted_at_ms", { mode: "number" }),
+    lastThrowAtMs: bigint("last_throw_at_ms", { mode: "number" }),
+    leaderboardVisible: boolean("leaderboard_visible").notNull().default(true),
+    createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
     check("players_public_tag_length", sql`length(${table.publicTag}) = 4`),
@@ -54,17 +60,13 @@ export const players = sqliteTable(
       "players_distinct_images",
       sql`${table.currentImageId} <> ${table.nextImageId}`,
     ),
-    check(
-      "players_leaderboard_visible_boolean",
-      sql`${table.leaderboardVisible} IN (0, 1)`,
-    ),
     index("players_leaderboard_idx")
       .on(
         sql`${table.sandwichesFed} DESC`,
         sql`coalesce(${table.lastAcceptedAtMs}, ${table.createdAtMs})`,
         table.id,
       )
-      .where(sql`${table.leaderboardVisible} = 1`),
+      .where(sql`${table.leaderboardVisible} = true`),
   ],
 );
 

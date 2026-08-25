@@ -8,14 +8,18 @@ cached synthetic portraits, and compete on a public top-10 leaderboard.
 
 Requirements: Node.js 22.13 or newer.
 
+Copy `.env.example` to `.env.local`, set `DATABASE_URL` to a Postgres
+connection string, and set `ROUND_TOKEN_SECRET` to a random value containing at
+least 32 UTF-8 bytes.
+
 ```bash
 npm ci
 npm run dev
 ```
 
-The Sites starter supplies a local Cloudflare runtime and D1 binding. Local
-round tokens use the preview-only secret in `vite.config.ts`; hosted deployments
-must set a separate `ROUND_TOKEN_SECRET` environment variable.
+For Vercel, connect a Postgres provider such as Neon from the Storage section of
+the project dashboard. Vercel supplies `DATABASE_URL`; add
+`ROUND_TOKEN_SECRET` to the project environment variables before deploying.
 
 ## Verification
 
@@ -26,9 +30,9 @@ npm test
 npm run db:generate
 ```
 
-`npm test` runs the production build and the API/game contract tests. Database
-migrations live in `drizzle/` and the app also initializes the same schema
-idempotently for a brand-new Sites D1 database.
+`npm test` runs the production Next.js build and the API/game contract tests.
+Generate Postgres migrations with `npm run db:generate`, then apply them with
+`npm run db:migrate` while `DATABASE_URL` is available in the shell.
 
 ## API
 
@@ -40,7 +44,7 @@ idempotently for a brand-new Sites D1 database.
 - `GET /api/leaderboard` returns the cached leaders and visible global total.
 - `DELETE /api/player` deletes progress and expires the session cookie.
 
-Progress is stored in Cloudflare D1. The browser receives a 365-day secure,
+Progress is stored in Postgres. The browser receives a 365-day secure,
 HTTP-only session cookie; the database stores only its SHA-256 hash. No email,
 raw IP address, user agent, click coordinate, or round token is retained.
 

@@ -16,6 +16,14 @@ const geistMono = Geist_Mono({
 const description =
   "Clear FatBoy boxes, unlock the 12-pack, master nine reload challenges, and climb the global leaderboard.";
 
+function fallbackOrigin(): URL {
+  const vercelHost =
+    process.env.VERCEL_PROJECT_PRODUCTION_URL ?? process.env.VERCEL_URL;
+  return vercelHost
+    ? new URL(`https://${vercelHost}`)
+    : new URL("http://localhost:3000");
+}
+
 function metadataOrigin(requestHeaders: Headers): URL {
   const forwardedHost = requestHeaders.get("x-forwarded-host")?.split(",")[0];
   const host = forwardedHost ?? requestHeaders.get("host");
@@ -32,9 +40,9 @@ function metadataOrigin(requestHeaders: Headers): URL {
         : "https";
 
   try {
-    return new URL(`${protocol}://${host ?? "fatboy-feed-frenzy.sites.openai.com"}`);
+    return host ? new URL(`${protocol}://${host}`) : fallbackOrigin();
   } catch {
-    return new URL("https://fatboy-feed-frenzy.sites.openai.com");
+    return fallbackOrigin();
   }
 }
 

@@ -38,18 +38,30 @@ function collectErrorMessages(error: unknown): string {
   return messages.join("\n");
 }
 
+function hasErrorCode(error: unknown, expectedCodes: ReadonlySet<string>): boolean {
+  let current: unknown = error;
+  for (let depth = 0; depth < 4 && current instanceof Error; depth += 1) {
+    const code = (current as Error & { code?: unknown }).code;
+    if (typeof code === "string" && expectedCodes.has(code)) {
+      return true;
+    }
+    current = current.cause;
+  }
+  return false;
+}
+
 function databaseConfigurationError(error: unknown): ApiError | null {
   const message = collectErrorMessages(error);
   if (
-    message.includes("D1 binding `DB` is unavailable") ||
-    message.includes("no such table") ||
-    message.includes("no such column") ||
-    message.includes("has no column named")
+    message.includes("DATABASE_URL") ||
+    hasErrorCode(error, new Set(["42P01", "42703"])) ||
+    message.includes('relation "players" does not exist') ||
+    (message.includes("does not exist") && message.includes("column"))
   ) {
     return new ApiError(
       503,
       "DATABASE_NOT_READY",
-      "The game database is not ready. Confirm the Sites D1 binding is named DB and apply the generated Drizzle migration.",
+      "The game database is not ready. Connect a Postgres database to this Vercel project and redeploy.",
       { retryable: true },
     );
   }

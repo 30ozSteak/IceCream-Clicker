@@ -1,11 +1,10 @@
-import { env } from "cloudflare:workers";
 import { ApiError } from "./api-error";
 
 const DEVELOPMENT_ROUND_TOKEN_SECRET =
   "fatboy-feed-frenzy-development-fallback-only";
 
 export function getRoundTokenSecret(): string {
-  const configured = env.ROUND_TOKEN_SECRET;
+  const configured = process.env.ROUND_TOKEN_SECRET;
   if (
     typeof configured === "string" &&
     new TextEncoder().encode(configured).byteLength >= 32

@@ -9,7 +9,7 @@ import {
   or,
   sql,
 } from "drizzle-orm";
-import { ensureGameSchema, getDb } from "../../db";
+import { getDb } from "../../db";
 import { players, type PlayerRow } from "../../db/schema";
 import {
   PORTRAITS,
@@ -144,7 +144,11 @@ function pickFollowingPortrait(player: PlayerRow): Portrait {
 function isUniqueConstraintError(error: unknown): boolean {
   let current: unknown = error;
   for (let depth = 0; depth < 4 && current instanceof Error; depth += 1) {
-    if (current.message.includes("UNIQUE constraint failed")) {
+    if (
+      (current as Error & { code?: string }).code === "23505" ||
+      current.message.includes("UNIQUE constraint failed") ||
+      current.message.includes("duplicate key value violates unique constraint")
+    ) {
       return true;
     }
     current = current.cause;
@@ -223,7 +227,7 @@ async function createPlayer(
         .returning();
 
       if (!player) {
-        throw new Error("D1 did not return the newly created player.");
+        throw new Error("The database did not return the newly created player.");
       }
       return { player, sessionToken };
     } catch (error) {
@@ -314,7 +318,6 @@ async function buildGameState(
 }
 
 export async function getOrCreateGame(request: Request): Promise<GameSessionResult> {
-  await ensureGameSchema();
   const db = getDb();
   const existing = await findSessionPlayer(db, request);
   if (existing) {
@@ -363,7 +366,6 @@ export async function updatePlayerNickname(
     });
   }
 
-  await ensureGameSchema();
   const db = getDb();
   const session = await requireSessionPlayer(db, request);
   const [updated] = await db
@@ -442,7 +444,6 @@ export async function feedPlayer(
   payload: Record<string, unknown>,
 ): Promise<FeedResponse> {
   const feed = parseFeedRequest(payload);
-  await ensureGameSchema();
   const db = getDb();
   const session = await requireSessionPlayer(db, request);
   if (session.player.nickname === null) {
@@ -688,7 +689,6 @@ export async function openNextPack(
   payload: Record<string, unknown>,
 ): Promise<PackReloadResponse> {
   const packRequest = parsePackReloadRequest(payload);
-  await ensureGameSchema();
   const db = getDb();
   const session = await requireSessionPlayer(db, request);
   if (session.player.nickname === null) {
@@ -843,7 +843,6 @@ export async function openNextPack(
 }
 
 export async function getLeaderboard(): Promise<LeaderboardResponse> {
-  await ensureGameSchema();
   const db = getDb();
   const [leaderRows, totalRows] = await Promise.all([
     db
@@ -900,7 +899,6 @@ export async function deletePlayer(
     return { ok: true };
   }
 
-  await ensureGameSchema();
   const tokenHash = await hashSessionToken(token);
   const db = getDb();
   await db.delete(players).where(eq(players.sessionTokenHash, tokenHash));
