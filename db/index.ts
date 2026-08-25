@@ -1,6 +1,10 @@
 import { env } from "cloudflare:workers";
 import { drizzle } from "drizzle-orm/d1";
 import * as schema from "./schema";
+import {
+  ADD_PACKS_OPENED_COLUMN_SQL,
+  BACKFILL_PACKS_OPENED_SQL,
+} from "./schema-maintenance";
 
 const GAME_SCHEMA_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS players (
@@ -52,6 +56,34 @@ export function getDb() {
   return drizzle(getD1Binding(), { schema });
 }
 
+async function playerColumnNames(d1: D1Database): Promise<Set<string>> {
+  const result = await d1
+    .prepare("PRAGMA table_info(players)")
+    .all<{ name: string }>();
+  return new Set(result.results.map((column) => column.name));
+}
+
+async function ensurePackStateSchema(d1: D1Database): Promise<void> {
+  const columns = await playerColumnNames(d1);
+  if (columns.has("packs_opened")) {
+    return;
+  }
+
+  try {
+    await d1.prepare(ADD_PACKS_OPENED_COLUMN_SQL).run();
+  } catch (error) {
+    // Another request can win this idempotent upgrade between the PRAGMA and
+    // ALTER. Re-read the schema and suppress only that successful race.
+    const refreshedColumns = await playerColumnNames(d1);
+    if (!refreshedColumns.has("packs_opened")) {
+      throw error;
+    }
+  }
+
+  await d1.prepare(BACKFILL_PACKS_OPENED_SQL).run();
+  console.info(JSON.stringify({ message: "game_schema_upgraded", column: "packs_opened" }));
+}
+
 /**
  * Sites can attach a brand-new D1 database before migrations are applied. Keep
  * runtime initialization idempotent so both that first request and local
@@ -63,4 +95,5 @@ export async function ensureGameSchema(): Promise<void> {
   await d1.batch(
     GAME_SCHEMA_STATEMENTS.map((statement) => d1.prepare(statement)),
   );
+  await ensurePackStateSchema(d1);
 }

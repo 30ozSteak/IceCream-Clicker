@@ -22,6 +22,10 @@ import {
   signRoundToken,
   verifyRoundToken,
 } from "../lib/server/security.ts";
+import {
+  ADD_PACKS_OPENED_COLUMN_SQL,
+  BACKFILL_PACKS_OPENED_SQL,
+} from "../db/schema-maintenance.ts";
 
 const TEST_SECRET = "test-round-secret-that-is-at-least-32-bytes-long";
 const baseMigration = readFileSync(
@@ -416,6 +420,39 @@ test("a late pack migration preserves a pack opened by runtime bootstrap", () =>
     },
     { sandwiches_fed: 6, packs_opened: 2, score_version: 7 },
   );
+  database.close();
+});
+
+test("runtime schema maintenance upgrades the live legacy table in place", () => {
+  const database = new DatabaseSync(":memory:");
+  database.exec(baseMigration);
+  database.exec(`
+    INSERT INTO players (
+      id, session_token_hash, nickname, public_tag, sandwiches_fed,
+      score_version, current_image_id, next_image_id, last_accepted_at_ms,
+      leaderboard_visible, created_at_ms, updated_at_ms
+    ) VALUES
+      ('legacy-56', 'hash-56', 'Existing Player', 'LIVE', 56, 56, 'a', 'b', 1, 1, 0, 1),
+      ('empty-6', 'hash-6', 'Empty Pack', 'EMTY', 6, 6, 'a', 'b', 1, 1, 0, 1),
+      ('opened-6', 'hash-7', 'Opened Pack', 'OPEN', 6, 7, 'a', 'b', 1, 1, 0, 1)
+  `);
+
+  database.exec(ADD_PACKS_OPENED_COLUMN_SQL);
+  database.exec(BACKFILL_PACKS_OPENED_SQL);
+  database.exec(BACKFILL_PACKS_OPENED_SQL);
+
+  assert.deepEqual(
+    database
+      .prepare("SELECT id, packs_opened FROM players ORDER BY id")
+      .all()
+      .map((row) => ({ ...row })),
+    [
+      { id: "empty-6", packs_opened: 1 },
+      { id: "legacy-56", packs_opened: 10 },
+      { id: "opened-6", packs_opened: 2 },
+    ],
+  );
+  assert.equal(database.prepare("PRAGMA integrity_check").get().integrity_check, "ok");
   database.close();
 });
 
