@@ -23,7 +23,7 @@ import {
   normalizedImagePointToStage,
   stagePointToNormalizedImage,
 } from "../lib/client/portrait-geometry";
-import { getFeedReaction } from "../lib/feed-reactions";
+import { getFeedReaction, getMissReaction } from "../lib/feed-reactions";
 import {
   getClearedPackHistory,
   getDisplayedClearedPackCount,
@@ -156,6 +156,11 @@ type ActiveReloadStyle = CSSProperties & {
   "--pack-accent-soft": string;
 };
 
+type MissFeedbackStyle = CSSProperties & {
+  "--miss-x": string;
+  "--miss-y": string;
+};
+
 type ApiLeaderboardResponse = {
   leaders: Array<{
     rank?: number;
@@ -175,8 +180,9 @@ type Notice = {
   tone: "info" | "success" | "error";
 };
 
-type SandwichSplat = {
+type MissFeedback = {
   id: number;
+  message: string;
   x: number;
   y: number;
 };
@@ -184,7 +190,6 @@ type SandwichSplat = {
 type FeedReaction = {
   id: number;
   message: string;
-  tone: "hit" | "miss";
   x: number;
   y: number;
 };
@@ -601,6 +606,7 @@ export function GameClient() {
   const [globalTotal, setGlobalTotal] = useState<number | null>(null);
   const [leaderboardLoading, setLeaderboardLoading] = useState(true);
   const [leaderboardOpen, setLeaderboardOpen] = useState(false);
+  const [gameInfoOpen, setGameInfoOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [bootstrapError, setBootstrapError] = useState<string | null>(null);
   const [offline, setOffline] = useState(false);
@@ -623,7 +629,7 @@ export function GameClient() {
     x: number;
     y: number;
   } | null>(null);
-  const [sandwichSplat, setSandwichSplat] = useState<SandwichSplat | null>(null);
+  const [missFeedback, setMissFeedback] = useState<MissFeedback | null>(null);
   const [feedReaction, setFeedReaction] = useState<FeedReaction | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [announcement, setAnnouncement] = useState("");
@@ -634,6 +640,7 @@ export function GameClient() {
 
   const stageRef = useRef<HTMLDivElement>(null);
   const portraitImageRef = useRef<HTMLImageElement>(null);
+  const hudTriggerRef = useRef<HTMLButtonElement | null>(null);
   const feedLockRef = useRef(false);
   const packLockRef = useRef(false);
   const reloadSessionRef = useRef<ReloadSession | null>(null);
@@ -645,7 +652,7 @@ export function GameClient() {
   const accessibleReloadPendingRef = useRef(false);
   const reloadFrameRef = useRef<number | null>(null);
   const reloadGenerationRef = useRef(0);
-  const splatIdRef = useRef(0);
+  const missIdRef = useRef(0);
   const reactionIdRef = useRef(0);
   const noticeTimerRef = useRef<number | null>(null);
   const reducedMotion = useReducedMotion();
@@ -837,20 +844,20 @@ export function GameClient() {
   }, [cancelReloadWork]);
 
   useEffect(() => {
-    if (!sandwichSplat) {
+    if (!missFeedback) {
       return;
     }
 
-    const splatTimer = window.setTimeout(
+    const missTimer = window.setTimeout(
       () => {
-        setSandwichSplat((current) =>
-          current?.id === sandwichSplat.id ? null : current,
+        setMissFeedback((current) =>
+          current?.id === missFeedback.id ? null : current,
         );
       },
       reducedMotion ? 650 : 1_150,
     );
-    return () => window.clearTimeout(splatTimer);
-  }, [reducedMotion, sandwichSplat]);
+    return () => window.clearTimeout(missTimer);
+  }, [missFeedback, reducedMotion]);
 
   useEffect(() => {
     if (!feedReaction) {
@@ -870,14 +877,21 @@ export function GameClient() {
 
   useEffect(() => {
     const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setLeaderboardOpen(false);
+      if (
+        event.key !== "Escape" ||
+        (!leaderboardOpen && !gameInfoOpen)
+      ) {
+        return;
       }
+
+      setLeaderboardOpen(false);
+      setGameInfoOpen(false);
+      window.requestAnimationFrame(() => hudTriggerRef.current?.focus());
     };
 
     document.addEventListener("keydown", handleEscape);
     return () => document.removeEventListener("keydown", handleEscape);
-  }, []);
+  }, [gameInfoOpen, leaderboardOpen]);
 
   const mouthButtonStyle = useMemo<CSSProperties | undefined>(() => {
     if (!displayPortrait) {
@@ -974,7 +988,7 @@ export function GameClient() {
     const previousStreak = streak;
     const clickedPortrait = displayPortrait;
 
-    setSandwichSplat(null);
+    setMissFeedback(null);
     setFeedReaction(null);
     setSandwichTarget(target);
     setGame({
@@ -1009,16 +1023,14 @@ export function GameClient() {
       (error: unknown) => ({ ok: false as const, error }),
     );
 
-    await delay(reducedMotion ? 40 : 210);
+    await delay(reducedMotion ? 40 : 280);
     setSandwichTarget(null);
-    splatIdRef.current += 1;
-    setSandwichSplat({ ...target, id: splatIdRef.current });
-    reactionIdRef.current += 1;
-    const reactionId = reactionIdRef.current;
-    setFeedReaction({
-      id: reactionId,
-      message: "Splat!",
-      tone: "miss",
+    missIdRef.current += 1;
+    const missId = missIdRef.current;
+    const missMessage = getMissReaction(missId);
+    setMissFeedback({
+      id: missId,
+      message: missMessage,
       ...target,
     });
 
@@ -1026,15 +1038,12 @@ export function GameClient() {
     if (result.ok && result.data.outcome === "miss") {
       setGame(result.data.game);
       setDisplayPortrait(result.data.game.round.current);
-      setAnnouncement("Miss. Sandwich spent; no point scored.");
+      setAnnouncement(`${missMessage} Sandwich spent; no point scored.`);
     } else {
       const error = result.ok
         ? new Error("The server returned the wrong throw outcome.")
         : result.error;
-      setSandwichSplat(null);
-      setFeedReaction((current) =>
-        current?.id === reactionId ? null : current,
-      );
+      setMissFeedback(null);
       setGame(snapshot);
       setDisplayPortrait(snapshot.round.current);
       setStreak(previousStreak);
@@ -1090,7 +1099,7 @@ export function GameClient() {
           y: stageHeight * clickedPortrait.mouth.cy,
         };
 
-    setSandwichSplat(null);
+    setMissFeedback(null);
     setFeedReaction(null);
     setSandwichTarget(target);
     setGame({
@@ -1133,13 +1142,12 @@ export function GameClient() {
       (error: unknown) => ({ ok: false as const, error }),
     );
 
-    await delay(reducedMotion ? 40 : 210);
+    await delay(reducedMotion ? 40 : 280);
     reactionIdRef.current += 1;
     const reactionId = reactionIdRef.current;
     setFeedReaction({
       id: reactionId,
       message: getFeedReaction(snapshot.player.sandwichesFed + 1),
-      tone: "hit",
       ...target,
     });
     setDisplayPortrait(snapshot.round.next);
@@ -1939,6 +1947,20 @@ export function GameClient() {
   const portrait = displayPortrait;
   const currentDisplayName = player?.displayName ?? null;
   const nicknameRequired = Boolean(!loading && game && !game.player.nickname);
+  const hudPanelOpen = gameInfoOpen || leaderboardOpen;
+  const saveStateLabel = offline
+    ? "offline"
+    : loading
+      ? "connecting"
+      : isFeeding
+        ? "saving"
+        : isCompletingReload
+          ? "opening pack"
+          : isStartingReload
+            ? "starting reload"
+            : reloadSession
+              ? "reloading"
+              : "saved";
   const packEmpty = player?.sandwichesRemaining === 0;
   const clearedBoxesVisible = player
     ? getDisplayedClearedPackCount(
@@ -2157,6 +2179,8 @@ export function GameClient() {
           id="game"
           ref={stageRef}
           onClick={(event) => void handleMiss(event)}
+          inert={hudPanelOpen ? true : undefined}
+          aria-hidden={hudPanelOpen ? true : undefined}
           aria-busy={loading || isFeeding || isOpeningPack}
         >
           {portrait ? (
@@ -2212,7 +2236,6 @@ export function GameClient() {
 
           <FatboyProjectile
             target={shotUsesThree ? sandwichTarget : null}
-            splat={sandwichSplat}
             onReadyChange={setThreeProjectileReady}
             reducedMotion={reducedMotion}
           />
@@ -2228,9 +2251,26 @@ export function GameClient() {
             />
           ) : null}
 
+          {missFeedback ? (
+            <div
+              className={`miss-feedback${missFeedback.id % 2 === 0 ? " miss-feedback-tilt-right" : ""}`}
+              key={missFeedback.id}
+              style={
+                {
+                  "--miss-x": `${missFeedback.x}px`,
+                  "--miss-y": `${missFeedback.y}px`,
+                } as MissFeedbackStyle
+              }
+              aria-hidden="true"
+            >
+              <span className="miss-feedback-mark">×</span>
+              <strong>{missFeedback.message}</strong>
+            </div>
+          ) : null}
+
           {feedReaction ? (
             <strong
-              className={`feed-reaction feed-reaction-${feedReaction.tone}${feedReaction.id % 2 === 0 ? " feed-reaction-tilt-right" : ""}`}
+              className={`feed-reaction${feedReaction.id % 2 === 0 ? " feed-reaction-tilt-right" : ""}`}
               key={feedReaction.id}
               style={{
                 left: `clamp(100px, ${feedReaction.x}px, calc(100% - 100px))`,
@@ -2245,7 +2285,7 @@ export function GameClient() {
           {packEmpty &&
           reloadPack &&
           !isFeeding &&
-          !sandwichSplat &&
+          !missFeedback &&
           !bootstrapError ? (
             <section
               className={`pack-reload pack-reload-${reloadMechanic ?? "precision"}${isCompletingReload ? " pack-reload-opening" : ""}${twelvePackUnlocked ? " pack-reload-unlocked" : ""}`}
@@ -2388,8 +2428,12 @@ export function GameClient() {
           <ClearedBoxStack count={clearedBoxesVisible} />
         </main>
 
-        <header className="overlay-top">
-          <div>
+        <header
+          className="overlay-top"
+          inert={hudPanelOpen ? true : undefined}
+          aria-hidden={hudPanelOpen ? true : undefined}
+        >
+          <div className="brand-stack">
             <h1 className="brand-lockup">
               <img
                 className="brand-logo"
@@ -2402,101 +2446,72 @@ export function GameClient() {
             <p className="game-instruction" id="mouth-instructions">
               {packEmpty
                 ? isStartingReload
-                  ? `starting ${reloadPack?.reload.label ?? "reload"}`
+                  ? "getting the box ready"
                   : reloadSession
-                    ? reloadInteractionPrompt ??
-                      `${reloadPack?.reload.label ?? "reload"} · watch the timer`
-                    : `next · ${reloadPack?.shortName ?? "fresh box"} · click to start`
-                : `${player?.currentPack.shortName ?? "FatBoy"} · ${player?.sandwichesRemaining ?? 0}/${player?.currentPack.quantity ?? 0} left · tap the mouth`}
+                    ? reloadInteractionPrompt ?? "watch the timer"
+                    : `${reloadPack?.quantity ?? 0} treats · tap the box`
+                : `${player?.sandwichesRemaining ?? 0} left · tap the mouth`}
             </p>
           </div>
-          <dl className="stats-line" aria-label="Game statistics">
-            <div>
-              <dt>you</dt>
-              <dd>{player ? numberFormatter.format(player.sandwichesFed) : "—"}</dd>
-            </div>
-            <div>
-              <dt>everyone</dt>
-              <dd>{globalTotal === null ? "—" : numberFormatter.format(globalTotal)}</dd>
-            </div>
-            <div>
-              <dt>pack</dt>
-              <dd>
-                {player
-                  ? `${player.sandwichesRemaining}/${player.currentPack.quantity}`
-                  : "—"}
-              </dd>
-            </div>
-            <div>
-              <dt>streak</dt>
-              <dd>{numberFormatter.format(streak)}</dd>
-            </div>
-          </dl>
         </header>
 
-        <aside
-          className="leaderboard-plain"
-          id="leaderboard-panel"
-          aria-labelledby="leaderboard-heading"
-          hidden={!leaderboardOpen}
+        <footer
+          className={`overlay-bottom${packEmpty ? " overlay-bottom-pack-empty" : ""}`}
+          inert={hudPanelOpen ? true : undefined}
+          aria-hidden={hudPanelOpen ? true : undefined}
         >
-          <p className="overlay-label" id="leaderboard-heading">
-            Top feeders
-          </p>
-          <LeaderboardContents
-            leaders={leaders}
-            currentDisplayName={currentDisplayName}
-            loading={leaderboardLoading}
-          />
-        </aside>
-
-        <footer className="overlay-bottom">
           <div className="footer-left">
-            <div className="player-line">
+            <p className="player-line">
               <span>{currentDisplayName ?? "getting ready…"}</span>
-              <button
-                className="text-action"
-                type="button"
-                onClick={() => setLeaderboardOpen((open) => !open)}
-                disabled={
-                  !player || isFeeding || isOpeningPack || Boolean(reloadSession)
-                }
-                aria-expanded={leaderboardOpen}
-                aria-controls="leaderboard-panel"
-              >
-                leaderboard
-              </button>
-            </div>
-            <p className="site-disclaimer">
-              <a
-                href="https://www.mistakes.party/"
-                target="_blank"
-                rel="noopener noreferrer"
-                aria-label="Visit mistakes.party (opens in a new tab)"
-              >
-                mistakes.party
-              </a>
-              <span aria-hidden="true"> · </span>
-              <span>
-                This game is made for humor and is not affiliated with,
-                endorsed by, or sponsored by any real brand.
-              </span>
             </p>
           </div>
-          <p className="save-state" role="status">
-            {offline
-              ? "offline"
-              : loading
-                ? "connecting"
-                : isFeeding
-                  ? "saving"
-                  : isCompletingReload
-                    ? "opening pack"
-                    : isStartingReload
-                      ? "starting reload"
-                      : reloadSession
-                        ? "reloading"
-                        : "saved"}
+
+          <nav className="hud-controls" aria-label="Game menu">
+            <button
+              className="hud-control"
+              type="button"
+              onClick={(event) => {
+                hudTriggerRef.current = event.currentTarget;
+                setLeaderboardOpen(false);
+                setGameInfoOpen(true);
+              }}
+              disabled={
+                !player || isFeeding || isOpeningPack || Boolean(reloadSession)
+              }
+              aria-expanded={gameInfoOpen}
+              aria-controls="game-info-panel"
+              aria-label={`View game stats. Your score is ${player?.sandwichesFed ?? 0}.`}
+            >
+              <span>you</span>
+              <strong>
+                {player ? numberFormatter.format(player.sandwichesFed) : "—"}
+              </strong>
+            </button>
+            <button
+              className="hud-control hud-control-ranks"
+              type="button"
+              onClick={(event) => {
+                hudTriggerRef.current = event.currentTarget;
+                setGameInfoOpen(false);
+                setLeaderboardOpen(true);
+              }}
+              disabled={
+                !player || isFeeding || isOpeningPack || Boolean(reloadSession)
+              }
+              aria-expanded={leaderboardOpen}
+              aria-controls="leaderboard-panel"
+            >
+              <span>top</span>
+              <strong>ranks</strong>
+            </button>
+          </nav>
+
+          <p
+            className={`save-state${offline ? " save-state-offline" : ""}`}
+            role="status"
+          >
+            <span aria-hidden="true" />
+            {saveStateLabel}
           </p>
         </footer>
 
@@ -2506,6 +2521,131 @@ export function GameClient() {
           </p>
         ) : null}
       </div>
+
+      {hudPanelOpen ? (
+        <div className="hud-panel-backdrop">
+          <section
+            className="hud-panel"
+            id={gameInfoOpen ? "game-info-panel" : "leaderboard-panel"}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="hud-panel-title"
+          >
+            <header className="hud-panel-header">
+              <div>
+                <p>{gameInfoOpen ? "Your game" : "Leaderboard"}</p>
+                <h2 id="hud-panel-title">
+                  {gameInfoOpen
+                    ? currentDisplayName ?? "Getting ready…"
+                    : "Top feeders"}
+                </h2>
+              </div>
+              <button
+                className="hud-panel-close"
+                type="button"
+                onClick={() => {
+                  setGameInfoOpen(false);
+                  setLeaderboardOpen(false);
+                  window.requestAnimationFrame(() =>
+                    hudTriggerRef.current?.focus(),
+                  );
+                }}
+                autoFocus
+              >
+                <span aria-hidden="true">×</span>
+                <span className="sr-only">Close panel</span>
+              </button>
+            </header>
+
+            {gameInfoOpen ? (
+              <>
+                <dl className="hud-stats" aria-label="Game statistics">
+                  <div>
+                    <dt>you</dt>
+                    <dd>
+                      {player
+                        ? numberFormatter.format(player.sandwichesFed)
+                        : "—"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>everyone</dt>
+                    <dd>
+                      {globalTotal === null
+                        ? "—"
+                        : numberFormatter.format(globalTotal)}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>pack</dt>
+                    <dd>
+                      {player
+                        ? `${player.sandwichesRemaining}/${player.currentPack.quantity}`
+                        : "—"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>streak</dt>
+                    <dd>{numberFormatter.format(streak)}</dd>
+                  </div>
+                </dl>
+
+                <div className="challenge-card">
+                  <span>Daily challenge</span>
+                  <strong>Feed 50 people</strong>
+                </div>
+
+                <dl className="game-details">
+                  <div>
+                    <dt>Current box</dt>
+                    <dd>{player?.currentPack.shortName ?? "—"}</dd>
+                  </div>
+                  <div>
+                    <dt>Boxes cleared</dt>
+                    <dd>
+                      {player
+                        ? numberFormatter.format(player.packsCleared)
+                        : "—"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Status</dt>
+                    <dd>{saveStateLabel}</dd>
+                  </div>
+                </dl>
+
+                <div className="about-game">
+                  <a
+                    href="https://www.mistakes.party/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label="Visit mistakes.party (opens in a new tab)"
+                  >
+                    mistakes.party
+                  </a>
+                  <p>
+                    Made for humor. Not affiliated with, endorsed by, or
+                    sponsored by any real brand, but I wouldn&apos;t mind it.
+                  </p>
+                </div>
+              </>
+            ) : (
+              <div className="leaderboard-sheet">
+                <p className="leaderboard-total">
+                  {globalTotal === null
+                    ? "Scores from every player"
+                    : `${numberFormatter.format(globalTotal)} treats shared`}
+                </p>
+                <LeaderboardContents
+                  leaders={leaders}
+                  currentDisplayName={currentDisplayName}
+                  loading={leaderboardLoading}
+                />
+              </div>
+            )}
+          </section>
+        </div>
+      ) : null}
 
       {notice ? (
         <div className="game-toast" role="status">

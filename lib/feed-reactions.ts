@@ -51,10 +51,29 @@ export const FEED_REACTIONS = [
   "Shut the freezer!",
 ] as const;
 
+export const MISS_REACTIONS = [
+  "Missed!",
+  "So close!",
+  "Not quite!",
+  "Just missed!",
+  "Almost!",
+  "Off target!",
+  "Wide!",
+  "Whoops!",
+] as const;
+
 export function getFeedReaction(sandwichesFed: number) {
   const completedFeeds = Number.isFinite(sandwichesFed)
     ? Math.max(1, Math.trunc(sandwichesFed))
     : 1;
 
   return FEED_REACTIONS[(completedFeeds - 1) % FEED_REACTIONS.length];
+}
+
+export function getMissReaction(misses: number) {
+  const completedMisses = Number.isFinite(misses)
+    ? Math.max(1, Math.trunc(misses))
+    : 1;
+
+  return MISS_REACTIONS[(completedMisses - 1) % MISS_REACTIONS.length];
 }
