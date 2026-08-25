@@ -8,18 +8,40 @@ cached synthetic portraits, and compete on a public top-10 leaderboard.
 
 Requirements: Node.js 22.13 or newer.
 
-Copy `.env.example` to `.env.local`, set `DATABASE_URL` to a Postgres
-connection string, and set `ROUND_TOKEN_SECRET` to a random value containing at
-least 32 UTF-8 bytes.
+The shared Vercel project uses a Vercel-managed Neon Postgres database. Link the
+checkout and pull its development credentials; secret values stay in the
+gitignored `.env.local` file.
 
 ```bash
 npm ci
+npx vercel link
+npx vercel env pull .env.local --yes
+npm run db:migrate
 npm run dev
 ```
 
-For Vercel, connect a Postgres provider such as Neon from the Storage section of
-the project dashboard. Vercel supplies `DATABASE_URL`; add
-`ROUND_TOKEN_SECRET` to the project environment variables before deploying.
+If you do not have access to the shared Vercel project, copy `.env.example` to
+`.env.local` and supply a Neon `DATABASE_URL` plus a random
+`ROUND_TOKEN_SECRET` containing at least 32 UTF-8 bytes. The runtime uses Neon's
+serverless HTTP driver, so a connection string from an arbitrary Postgres host
+is not interchangeable.
+
+### Provisioning a new Vercel project
+
+Only use this flow for a new project that does not already have a database. It
+creates a free Neon resource in the same region as this app, connects it to all
+three Vercel environments, and pulls the development values locally.
+
+```bash
+npx vercel link
+npx vercel integration add neon --name fatboy-clicker-db --plan free_v3 --metadata region=iad1 --metadata auth=false --no-claim
+node -e "process.stdout.write(require('node:crypto').randomBytes(48).toString('base64url'))" | npx vercel env add ROUND_TOKEN_SECRET production,preview,development --yes
+npx vercel env pull .env.local --yes
+npm run db:migrate
+```
+
+Never commit `.env.local` or print its values. Confirm configuration by listing
+environment variable names with `npx vercel env ls`.
 
 ## Verification
 
@@ -32,7 +54,12 @@ npm run db:generate
 
 `npm test` runs the production Next.js build and the API/game contract tests.
 Generate Postgres migrations with `npm run db:generate`, then apply them with
-`npm run db:migrate` while `DATABASE_URL` is available in the shell.
+`npm run db:migrate`. The Drizzle config loads `.env.local` when it exists and
+otherwise uses `DATABASE_URL` from the current shell.
+
+`drizzle-postgres/` is the only live migration history. The older `drizzle/`
+directory and `db/schema-maintenance.ts` are retained solely as fixtures for
+legacy SQLite migration tests and must not be applied to Postgres.
 
 ## API
 

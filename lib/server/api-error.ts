@@ -2,6 +2,9 @@ import type { ApiErrorBody } from "../game-types";
 
 type ErrorDetail = string | number | boolean;
 
+const REDACTED_DATABASE_URL = "[REDACTED_DATABASE_URL]";
+const POSTGRES_URL_PATTERN = /\bpostgres(?:ql)?:\/\/\S*/giu;
+
 export class ApiError extends Error {
   readonly status: number;
   readonly code: string;
@@ -36,6 +39,18 @@ function collectErrorMessages(error: unknown): string {
   }
 
   return messages.join("\n");
+}
+
+function redactDatabaseUrls(message: string): string {
+  const configuredUrl = process.env.DATABASE_URL;
+  const withoutConfiguredUrl = configuredUrl
+    ? message.replaceAll(configuredUrl, REDACTED_DATABASE_URL)
+    : message;
+
+  return withoutConfiguredUrl.replace(
+    POSTGRES_URL_PATTERN,
+    REDACTED_DATABASE_URL,
+  );
 }
 
 function hasErrorCode(error: unknown, expectedCodes: ReadonlySet<string>): boolean {
@@ -107,7 +122,8 @@ export function errorResponse(error: unknown, request: Request): Response {
         message: "game_api_request_failed",
         path: new URL(request.url).pathname,
         code: known.code,
-        error: collectErrorMessages(error) || "Unknown error",
+        error:
+          redactDatabaseUrls(collectErrorMessages(error)) || "Unknown error",
       }),
     );
   }

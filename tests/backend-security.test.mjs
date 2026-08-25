@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
+import { errorResponse } from "../lib/server/api-error.ts";
 import {
   ACTIVE_RELOAD_END_GRACE_MS,
   ACTIVE_RELOAD_END_MS,
@@ -18,6 +19,7 @@ import {
   readCookie,
   sessionCookie,
 } from "../lib/server/session-cookie.ts";
+import { requireSameOrigin } from "../lib/server/http.ts";
 import { validateNickname } from "../lib/server/nickname.ts";
 import {
   createSessionToken,
@@ -267,6 +269,68 @@ test("session cookie attributes are secure and deletion mirrors the path", () =>
   assert.match(created, /SameSite=Lax/u);
   assert.match(created, /Path=\//u);
   assert.match(expiredSessionCookie(), /Max-Age=0/u);
+});
+
+test("same-origin checks honor a valid Host alias and reject foreign origins", () => {
+  const localRequest = new Request("http://localhost:3100/api/player", {
+    headers: {
+      Host: "127.0.0.1:3100",
+      Origin: "http://127.0.0.1:3100",
+    },
+  });
+  assert.doesNotThrow(() => requireSameOrigin(localRequest));
+
+  const foreignRequest = new Request("http://localhost:3100/api/player", {
+    headers: {
+      Host: "127.0.0.1:3100",
+      Origin: "https://attacker.example",
+    },
+  });
+  assert.throws(
+    () => requireSameOrigin(foreignRequest),
+    /Cross-origin game requests are not allowed/u,
+  );
+});
+
+test("database error logs redact Postgres credentials without losing classification", async () => {
+  const databaseUrl =
+    "postgresql://audit-user:do-not-log-this@bad%host/game?sslmode=require";
+  const previousDatabaseUrl = process.env.DATABASE_URL;
+  const originalConsoleError = console.error;
+  const logged = [];
+  process.env.DATABASE_URL = databaseUrl;
+  console.error = (...values) => {
+    logged.push(values.map(String).join(" "));
+  };
+
+  try {
+    const postgresError = Object.assign(
+      new Error(`relation "players" does not exist. Connection string: ${databaseUrl}`),
+      { code: "42P01" },
+    );
+    const wrappedError = new Error("Failed to load the game database", {
+      cause: postgresError,
+    });
+    const response = errorResponse(
+      wrappedError,
+      new Request("https://fatboy.example/api/game"),
+    );
+
+    assert.equal(response.status, 503);
+    assert.equal((await response.json()).error.code, "DATABASE_NOT_READY");
+  } finally {
+    console.error = originalConsoleError;
+    if (previousDatabaseUrl === undefined) {
+      delete process.env.DATABASE_URL;
+    } else {
+      process.env.DATABASE_URL = previousDatabaseUrl;
+    }
+  }
+
+  const output = logged.join("\n");
+  assert.match(output, /Failed to load the game database/u);
+  assert.match(output, /\[REDACTED_DATABASE_URL\]/u);
+  assert.doesNotMatch(output, /audit-user|do-not-log-this|postgresql:\/\//u);
 });
 
 test("migration is idempotent and leaderboard uses score-reached time", () => {

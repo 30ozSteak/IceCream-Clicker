@@ -1,11 +1,11 @@
-import { ApiError } from "./api-error";
+import { ApiError } from "./api-error.ts";
 
 export {
   expiredSessionCookie,
   readCookie,
   SESSION_COOKIE_NAME,
   sessionCookie,
-} from "./session-cookie";
+} from "./session-cookie.ts";
 
 const MAX_JSON_BODY_BYTES = 4_096;
 
@@ -33,7 +33,27 @@ export function requireSameOrigin(request: Request): void {
     throw new ApiError(403, "ORIGIN_MISMATCH", "The request origin is invalid.");
   }
 
-  if (suppliedOrigin !== new URL(request.url).origin) {
+  const requestUrl = new URL(request.url);
+  const allowedOrigins = new Set([requestUrl.origin]);
+  const hostHeader = request.headers.get("Host");
+  if (hostHeader) {
+    try {
+      const hostOrigin = new URL(`${requestUrl.protocol}//${hostHeader}`);
+      if (
+        hostOrigin.username === "" &&
+        hostOrigin.password === "" &&
+        hostOrigin.pathname === "/" &&
+        hostOrigin.search === "" &&
+        hostOrigin.hash === ""
+      ) {
+        allowedOrigins.add(hostOrigin.origin);
+      }
+    } catch {
+      // A malformed Host header cannot authorize an origin.
+    }
+  }
+
+  if (!allowedOrigins.has(suppliedOrigin)) {
     throw new ApiError(
       403,
       "ORIGIN_MISMATCH",
