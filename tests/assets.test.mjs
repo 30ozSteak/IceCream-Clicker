@@ -43,6 +43,7 @@ test("approved brand assets and provenance are present", async () => {
 
   for (const path of [
     "public/brand/fatboy-logo.png",
+    "public/brand/fatboy-vanilla-6-pack.webp",
     "public/brand/vanilla-sandwich.webp",
   ]) {
     const file = await stat(new URL(path, projectRoot));

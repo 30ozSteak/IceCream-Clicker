@@ -35,6 +35,7 @@ idempotently for a brand-new Sites D1 database.
 - `GET /api/game` creates or restores the anonymous browser session.
 - `PATCH /api/player` validates and saves the nickname.
 - `POST /api/feed` validates a signed one-use round and mouth click.
+- `POST /api/pack` atomically opens the next six-sandwich pack.
 - `GET /api/leaderboard` returns the cached leaders and visible global total.
 - `DELETE /api/player` deletes progress and expires the session cookie.
 

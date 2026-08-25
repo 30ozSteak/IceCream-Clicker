@@ -5,6 +5,7 @@ export interface PlayerState {
   publicTag: string;
   displayName: string;
   sandwichesFed: number;
+  sandwichesRemaining: number;
   scoreVersion: number;
 }
 

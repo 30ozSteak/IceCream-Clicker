@@ -41,6 +41,8 @@ type Player = {
   publicTag: string;
   displayName: string;
   sandwichesFed: number;
+  sandwichesRemaining: number;
+  scoreVersion: number;
 };
 
 type Round = {
@@ -465,6 +467,7 @@ export function GameClient() {
   const [offline, setOffline] = useState(false);
   const [streak, setStreak] = useState(0);
   const [isFeeding, setIsFeeding] = useState(false);
+  const [isOpeningPack, setIsOpeningPack] = useState(false);
   const [geometry, setGeometry] = useState<CoverGeometry | null>(null);
   const [sandwichTarget, setSandwichTarget] = useState<{
     x: number;
@@ -483,6 +486,7 @@ export function GameClient() {
   const stageRef = useRef<HTMLDivElement>(null);
   const portraitImageRef = useRef<HTMLImageElement>(null);
   const feedLockRef = useRef(false);
+  const packLockRef = useRef(false);
   const noticeTimerRef = useRef<number | null>(null);
   const reducedMotion = useReducedMotion();
 
@@ -699,6 +703,9 @@ export function GameClient() {
   }, [displayPortrait, geometry]);
 
   const handleMiss = () => {
+    if (game?.player.sandwichesRemaining === 0 || isOpeningPack) {
+      return;
+    }
     setStreak(0);
     showNotice("Miss. Click the mouth.", "miss");
   };
@@ -733,6 +740,7 @@ export function GameClient() {
       !game ||
       !displayPortrait ||
       !("mouth" in displayPortrait) ||
+      game.player.sandwichesRemaining === 0 ||
       feedLockRef.current ||
       offline
     ) {
@@ -773,6 +781,10 @@ export function GameClient() {
       player: {
         ...snapshot.player,
         sandwichesFed: snapshot.player.sandwichesFed + 1,
+        sandwichesRemaining: Math.max(
+          0,
+          snapshot.player.sandwichesRemaining - 1,
+        ),
       },
     });
     setGlobalTotal((current) => (current === null ? null : current + 1));
@@ -819,6 +831,56 @@ export function GameClient() {
 
     setIsFeeding(false);
     feedLockRef.current = false;
+  };
+
+  const handleOpenPack = async (event: ReactMouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (
+      !game ||
+      game.player.sandwichesRemaining > 0 ||
+      packLockRef.current ||
+      offline
+    ) {
+      return;
+    }
+
+    packLockRef.current = true;
+    setIsOpeningPack(true);
+    const snapshot = game;
+
+    try {
+      const result = normalizeGameResponse(
+        await requestJson<ApiGameResponse>("/api/pack", {
+          method: "POST",
+          body: JSON.stringify({
+            expectedScoreVersion: snapshot.player.scoreVersion,
+          }),
+        }),
+      );
+      setGame(result);
+      setDisplayPortrait(result.round.current);
+      showNotice("Fresh pack opened. Six sandwiches ready!", "success");
+    } catch (error) {
+      try {
+        const synced = await fetchGame();
+        setGame(synced);
+        setDisplayPortrait(synced.round.current);
+        if (synced.player.sandwichesRemaining > 0) {
+          showNotice("Fresh pack opened. Six sandwiches ready!", "success");
+        } else {
+          showNotice(getFriendlyError(error), "error");
+        }
+      } catch {
+        setGame(snapshot);
+        setDisplayPortrait(snapshot.round.current);
+        showNotice(getFriendlyError(error), "error");
+      }
+    } finally {
+      setIsOpeningPack(false);
+      packLockRef.current = false;
+    }
   };
 
   const openRenameDialog = () => {
@@ -898,6 +960,7 @@ export function GameClient() {
       setLeaders([]);
       setGlobalTotal(null);
       setStreak(0);
+      setIsOpeningPack(false);
       setNicknameInput("");
       setNicknameMode(null);
       await loadEverything();
@@ -913,6 +976,7 @@ export function GameClient() {
   const portrait = displayPortrait;
   const currentDisplayName = player?.displayName ?? null;
   const modalOpen = Boolean(effectiveNicknameMode || resetOpen);
+  const packEmpty = player?.sandwichesRemaining === 0;
 
   return (
     <div className="game-shell">
@@ -922,11 +986,11 @@ export function GameClient() {
         aria-hidden={modalOpen ? true : undefined}
       >
         <main
-          className={`portrait-stage${isFeeding ? " portrait-stage-feeding" : ""}`}
+          className={`portrait-stage${isFeeding ? " portrait-stage-feeding" : ""}${packEmpty ? " portrait-stage-pack-empty" : ""}`}
           id="game"
           ref={stageRef}
           onClick={handleMiss}
-          aria-busy={loading || isFeeding}
+          aria-busy={loading || isFeeding || isOpeningPack}
         >
           {portrait ? (
             <img
@@ -965,7 +1029,7 @@ export function GameClient() {
             </div>
           ) : null}
 
-          {portrait && "mouth" in portrait && !bootstrapError ? (
+          {portrait && "mouth" in portrait && !bootstrapError && !packEmpty ? (
             <button
               className="mouth-target"
               style={mouthButtonStyle}
@@ -990,13 +1054,58 @@ export function GameClient() {
               aria-hidden="true"
             />
           ) : null}
+
+          {packEmpty && !isFeeding && !bootstrapError ? (
+            <section
+              className={`pack-reload${isOpeningPack ? " pack-reload-opening" : ""}`}
+              aria-labelledby="pack-reload-title"
+              aria-describedby="pack-reload-description"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="pack-reload-copy">
+                <p>Pack empty</p>
+                <h2 id="pack-reload-title">Open a fresh six-pack.</h2>
+                <span id="pack-reload-description">
+                  Click the box to reload your sandwiches.
+                </span>
+              </div>
+              <button
+                className="pack-box-button"
+                type="button"
+                onClick={handleOpenPack}
+                disabled={isOpeningPack || offline}
+                aria-label="Open a new six-pack of FatBoy ice cream sandwiches"
+              >
+                <img
+                  src="/brand/fatboy-vanilla-6-pack.webp"
+                  alt=""
+                  width="2048"
+                  height="2048"
+                  draggable={false}
+                  aria-hidden="true"
+                />
+                <span>{isOpeningPack ? "opening…" : "click to open"}</span>
+              </button>
+            </section>
+          ) : null}
         </main>
 
         <header className="overlay-top">
           <div>
-            <h1 className="brand-text">FatBoy Feed Frenzy</h1>
+            <h1 className="brand-lockup">
+              <img
+                className="brand-logo"
+                src="/brand/fatboy-logo.png"
+                alt="FatBoy"
+                width="450"
+                height="130"
+              />
+              <span>Feed Frenzy</span>
+            </h1>
             <p className="game-instruction" id="mouth-instructions">
-              click the mouth
+              {packEmpty
+                ? "pack empty · click the box"
+                : `click the mouth · ${player?.sandwichesRemaining ?? 6} left in pack`}
             </p>
           </div>
           <dl className="stats-line" aria-label="Game statistics">
@@ -1007,6 +1116,12 @@ export function GameClient() {
             <div>
               <dt>everyone</dt>
               <dd>{globalTotal === null ? "—" : numberFormatter.format(globalTotal)}</dd>
+            </div>
+            <div>
+              <dt>pack</dt>
+              <dd>
+                {player ? `${player.sandwichesRemaining}/6` : "—"}
+              </dd>
             </div>
             <div>
               <dt>streak</dt>
@@ -1031,7 +1146,7 @@ export function GameClient() {
               className="text-action"
               type="button"
               onClick={openRenameDialog}
-              disabled={!player || isFeeding}
+              disabled={!player || isFeeding || isOpeningPack}
             >
               rename
             </button>
@@ -1043,13 +1158,21 @@ export function GameClient() {
                 setResetError(null);
                 setResetOpen(true);
               }}
-              disabled={!player || isFeeding}
+              disabled={!player || isFeeding || isOpeningPack}
             >
               reset
             </button>
           </div>
           <p className="save-state" role="status">
-            {offline ? "offline" : loading ? "connecting" : isFeeding ? "saving" : "saved"}
+            {offline
+              ? "offline"
+              : loading
+                ? "connecting"
+                : isFeeding
+                  ? "saving"
+                  : isOpeningPack
+                    ? "opening pack"
+                    : "saved"}
           </p>
         </footer>
 

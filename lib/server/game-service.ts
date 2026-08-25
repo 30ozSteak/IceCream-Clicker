@@ -32,6 +32,8 @@ import {
   isNormalizedCoordinate,
   isPointInsideMouth,
   MIN_FEED_INTERVAL_MS,
+  sandwichesRemainingInPack,
+  SANDWICHES_PER_PACK,
 } from "./game-rules";
 import { readCookie, SESSION_COOKIE_NAME } from "./http";
 import { validateNickname } from "./nickname";
@@ -71,6 +73,10 @@ function playerState(player: PlayerRow): PlayerState {
     publicTag: player.publicTag,
     displayName: displayName(player),
     sandwichesFed: player.sandwichesFed,
+    sandwichesRemaining: sandwichesRemainingInPack(
+      player.sandwichesFed,
+      player.packsOpened,
+    ),
     scoreVersion: player.scoreVersion,
   };
 }
@@ -174,6 +180,7 @@ async function createPlayer(
           nickname: null,
           publicTag: randomPublicTag(),
           sandwichesFed: 0,
+          packsOpened: 1,
           scoreVersion: 0,
           currentImageId: current.id,
           nextImageId: next.id,
@@ -414,6 +421,18 @@ export async function feedPlayer(
       "Choose a nickname before feeding your first sandwich.",
     );
   }
+  if (
+    sandwichesRemainingInPack(
+      session.player.sandwichesFed,
+      session.player.packsOpened,
+    ) === 0
+  ) {
+    throw new ApiError(
+      409,
+      "PACK_EMPTY",
+      "Open a new FatBoy pack before feeding another sandwich.",
+    );
+  }
 
   const verification = await verifyRoundToken(
     feed.roundToken,
@@ -474,6 +493,7 @@ export async function feedPlayer(
         eq(players.sessionTokenHash, session.tokenHash),
         eq(players.scoreVersion, verification.claims.scoreVersion),
         eq(players.currentImageId, verification.claims.portraitId),
+        sql`${players.sandwichesFed} < ${players.packsOpened} * ${SANDWICHES_PER_PACK}`,
         or(
           isNull(players.lastAcceptedAtMs),
           lte(players.lastAcceptedAtMs, nowMs - MIN_FEED_INTERVAL_MS),
@@ -499,6 +519,15 @@ export async function feedPlayer(
         retryable: true,
       });
     }
+    if (
+      sandwichesRemainingInPack(latest.sandwichesFed, latest.packsOpened) === 0
+    ) {
+      throw new ApiError(
+        409,
+        "PACK_EMPTY",
+        "Open a new FatBoy pack before feeding another sandwich.",
+      );
+    }
     const latestWaitMs = feedWaitMs(latest.lastAcceptedAtMs, Date.now());
     if (
       latest.scoreVersion === verification.claims.scoreVersion &&
@@ -516,6 +545,120 @@ export async function feedPlayer(
   }
 
   return buildGameState(updated, nowMs);
+}
+
+function parseOpenPackRequest(payload: Record<string, unknown>): number {
+  assertOnlyKeys(payload, new Set(["expectedScoreVersion"]));
+  if (
+    typeof payload.expectedScoreVersion !== "number" ||
+    !Number.isSafeInteger(payload.expectedScoreVersion) ||
+    payload.expectedScoreVersion < 0
+  ) {
+    throw new ApiError(
+      400,
+      "INVALID_SCORE_VERSION",
+      "The expected score version must be a non-negative integer.",
+    );
+  }
+  return payload.expectedScoreVersion;
+}
+
+export async function openNextPack(
+  request: Request,
+  payload: Record<string, unknown>,
+): Promise<GameStateResponse> {
+  const expectedScoreVersion = parseOpenPackRequest(payload);
+  await ensureGameSchema();
+  const db = getDb();
+  const session = await requireSessionPlayer(db, request);
+  if (session.player.nickname === null) {
+    throw new ApiError(
+      409,
+      "NICKNAME_REQUIRED",
+      "Choose a nickname before opening your first pack.",
+    );
+  }
+
+  const remaining = sandwichesRemainingInPack(
+    session.player.sandwichesFed,
+    session.player.packsOpened,
+  );
+  if (session.player.scoreVersion !== expectedScoreVersion) {
+    if (
+      session.player.scoreVersion === expectedScoreVersion + 1 &&
+      remaining > 0
+    ) {
+      return buildGameState(session.player);
+    }
+    throw new ApiError(
+      409,
+      "PACK_STALE",
+      "That pack has already changed. Reload the game and try again.",
+      { retryable: true },
+    );
+  }
+  if (remaining > 0) {
+    throw new ApiError(
+      409,
+      "PACK_NOT_EMPTY",
+      "Finish the current six-pack before opening another one.",
+    );
+  }
+
+  const nowMs = Date.now();
+  const [updated] = await db
+    .update(players)
+    .set({
+      packsOpened: sql`${players.packsOpened} + 1`,
+      scoreVersion: sql`${players.scoreVersion} + 1`,
+      updatedAtMs: nowMs,
+    })
+    .where(
+      and(
+        eq(players.id, session.player.id),
+        eq(players.sessionTokenHash, session.tokenHash),
+        eq(players.packsOpened, session.player.packsOpened),
+        eq(players.scoreVersion, expectedScoreVersion),
+        sql`${players.sandwichesFed} = ${players.packsOpened} * ${SANDWICHES_PER_PACK}`,
+      ),
+    )
+    .returning();
+
+  if (updated) {
+    return buildGameState(updated, nowMs);
+  }
+
+  const [latest] = await db
+    .select()
+    .from(players)
+    .where(
+      and(
+        eq(players.id, session.player.id),
+        eq(players.sessionTokenHash, session.tokenHash),
+      ),
+    )
+    .limit(1);
+  if (!latest) {
+    throw new ApiError(401, "SESSION_REQUIRED", "The game session no longer exists.", {
+      retryable: true,
+    });
+  }
+
+  // Treat a concurrent pack-open request as success so a double click or a
+  // second tab cannot open two packs or leave the UI in an error state.
+  if (
+    latest.scoreVersion === expectedScoreVersion + 1 &&
+    sandwichesRemainingInPack(latest.sandwichesFed, latest.packsOpened) > 0
+  ) {
+    return buildGameState(latest, nowMs);
+  }
+
+  throw new ApiError(
+    409,
+    "PACK_STALE",
+    "That pack changed before it could be opened. Reload the game and try again.",
+    { retryable: true },
+  );
 }
 
 export async function getLeaderboard(): Promise<LeaderboardResponse> {

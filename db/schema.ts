@@ -15,6 +15,7 @@ export const players = sqliteTable(
     nickname: text("nickname"),
     publicTag: text("public_tag").notNull().unique(),
     sandwichesFed: integer("sandwiches_fed").notNull().default(0),
+    packsOpened: integer("packs_opened").notNull().default(1),
     scoreVersion: integer("score_version").notNull().default(0),
     currentImageId: text("current_image_id").notNull(),
     nextImageId: text("next_image_id").notNull(),
@@ -30,6 +31,11 @@ export const players = sqliteTable(
   (table) => [
     check("players_public_tag_length", sql`length(${table.publicTag}) = 4`),
     check("players_sandwiches_nonnegative", sql`${table.sandwichesFed} >= 0`),
+    check("players_packs_opened_positive", sql`${table.packsOpened} >= 1`),
+    check(
+      "players_active_pack_window",
+      sql`${table.sandwichesFed} >= (${table.packsOpened} - 1) * 6 AND ${table.sandwichesFed} <= ${table.packsOpened} * 6`,
+    ),
     check("players_score_version_nonnegative", sql`${table.scoreVersion} >= 0`),
     check(
       "players_distinct_images",

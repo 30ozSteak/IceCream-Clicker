@@ -4,8 +4,9 @@ Source review date: 2026-08-25.
 
 ## FatBoy brand assets
 
-- `brand/fatboy-logo.png` — “Fat Boy Ice Cream Sandwich Logo,” sourced from the official [FatBoy Broker Resource Center](https://fatboyicecream.com/brokers/) ([original PNG](https://fatboyicecream.com/downloads/FB-IceCreamSandwich.png)).
-- `brand/vanilla-sandwich.webp` — “Vanilla Ice Cream Sandwich,” sourced from the same resource center ([original JPEG](https://fatboyicecream.com/downloads/vanilla2.jpg)); locally resized and WebP-compressed without creative alteration.
+- `brand/fatboy-logo.png` — current FatBoy wordmark, sourced from the header of the official [FatBoy website](https://fatboyicecream.com/) ([original PNG](https://fatboyicecream.com/wp-content/uploads/2023/11/FB-Logo-23c.png)).
+- `brand/fatboy-vanilla-6-pack.webp` — current Premium Vanilla six-count retail box, sourced from the official [Ice Cream Sandwiches page](https://fatboyicecream.com/ice-cream-sandwiches/) ([original PNG](https://fatboyicecream.com/wp-content/uploads/2025/02/FB-SandwichVanilla-6ct-3dbox-01.png)); locally WebP-compressed at its original 2048×2048 dimensions without creative alteration.
+- `brand/vanilla-sandwich.webp` — “Vanilla Ice Cream Sandwich,” sourced from the official [FatBoy Broker Resource Center](https://fatboyicecream.com/brokers/) ([original JPEG](https://fatboyicecream.com/downloads/vanilla2.jpg)); locally resized and WebP-compressed without creative alteration.
 
 FatBoy and Casper's brand assets remain the property of their respective rights holders and are included under the project's stated brand authorization.
 

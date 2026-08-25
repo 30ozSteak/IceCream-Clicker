@@ -9,6 +9,7 @@ const GAME_SCHEMA_STATEMENTS = [
     nickname TEXT,
     public_tag TEXT NOT NULL,
     sandwiches_fed INTEGER NOT NULL DEFAULT 0 CHECK (sandwiches_fed >= 0),
+    packs_opened INTEGER NOT NULL DEFAULT 1 CHECK (packs_opened >= 1),
     score_version INTEGER NOT NULL DEFAULT 0 CHECK (score_version >= 0),
     current_image_id TEXT NOT NULL,
     next_image_id TEXT NOT NULL,
@@ -17,6 +18,10 @@ const GAME_SCHEMA_STATEMENTS = [
     created_at_ms INTEGER NOT NULL,
     updated_at_ms INTEGER NOT NULL,
     CONSTRAINT players_public_tag_length CHECK (length(public_tag) = 4),
+    CONSTRAINT players_active_pack_window CHECK (
+      sandwiches_fed >= (packs_opened - 1) * 6
+      AND sandwiches_fed <= packs_opened * 6
+    ),
     CONSTRAINT players_distinct_images CHECK (current_image_id <> next_image_id),
     CONSTRAINT players_leaderboard_visible_boolean CHECK (leaderboard_visible IN (0, 1))
   )`,

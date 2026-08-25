@@ -2,6 +2,27 @@ import type { MouthTarget } from "../portraits";
 import type { RoundTokenClaims } from "../game-types";
 
 export const MIN_FEED_INTERVAL_MS = 200;
+export const SANDWICHES_PER_PACK = 6;
+
+export function sandwichesRemainingInPack(
+  sandwichesFed: number,
+  packsOpened: number,
+): number {
+  if (
+    !Number.isSafeInteger(sandwichesFed) ||
+    sandwichesFed < 0 ||
+    !Number.isSafeInteger(packsOpened) ||
+    packsOpened < 1
+  ) {
+    throw new Error("The stored sandwich pack state is invalid.");
+  }
+
+  const remaining = packsOpened * SANDWICHES_PER_PACK - sandwichesFed;
+  if (remaining < 0 || remaining > SANDWICHES_PER_PACK) {
+    throw new Error("The stored sandwich pack state is outside the active pack.");
+  }
+  return remaining;
+}
 
 export function isNormalizedCoordinate(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1;

@@ -1,0 +1,188 @@
+{
+  "version": "6",
+  "dialect": "sqlite",
+  "id": "4f145aa9-9c9a-4958-a6f5-2e448e6af079",
+  "prevId": "01923e46-9038-495c-b364-bf0ada3c76e5",
+  "tables": {
+    "players": {
+      "name": "players",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "session_token_hash": {
+          "name": "session_token_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "nickname": {
+          "name": "nickname",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "public_tag": {
+          "name": "public_tag",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "sandwiches_fed": {
+          "name": "sandwiches_fed",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "packs_opened": {
+          "name": "packs_opened",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
+        },
+        "score_version": {
+          "name": "score_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "current_image_id": {
+          "name": "current_image_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "next_image_id": {
+          "name": "next_image_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "last_accepted_at_ms": {
+          "name": "last_accepted_at_ms",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "leaderboard_visible": {
+          "name": "leaderboard_visible",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": true
+        },
+        "created_at_ms": {
+          "name": "created_at_ms",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "updated_at_ms": {
+          "name": "updated_at_ms",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "players_session_token_hash_unique": {
+          "name": "players_session_token_hash_unique",
+          "columns": [
+            "session_token_hash"
+          ],
+          "isUnique": true
+        },
+        "players_public_tag_unique": {
+          "name": "players_public_tag_unique",
+          "columns": [
+            "public_tag"
+          ],
+          "isUnique": true
+        },
+        "players_leaderboard_idx": {
+          "name": "players_leaderboard_idx",
+          "columns": [
+            "\"sandwiches_fed\" DESC",
+            "coalesce(\"last_accepted_at_ms\", \"created_at_ms\")",
+            "id"
+          ],
+          "isUnique": false,
+          "where": "\"players\".\"leaderboard_visible\" = 1"
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "players_public_tag_length": {
+          "name": "players_public_tag_length",
+          "value": "length(\"players\".\"public_tag\") = 4"
+        },
+        "players_sandwiches_nonnegative": {
+          "name": "players_sandwiches_nonnegative",
+          "value": "\"players\".\"sandwiches_fed\" >= 0"
+        },
+        "players_packs_opened_positive": {
+          "name": "players_packs_opened_positive",
+          "value": "\"players\".\"packs_opened\" >= 1"
+        },
+        "players_active_pack_window": {
+          "name": "players_active_pack_window",
+          "value": "\"players\".\"sandwiches_fed\" >= (\"players\".\"packs_opened\" - 1) * 6 AND \"players\".\"sandwiches_fed\" <= \"players\".\"packs_opened\" * 6"
+        },
+        "players_score_version_nonnegative": {
+          "name": "players_score_version_nonnegative",
+          "value": "\"players\".\"score_version\" >= 0"
+        },
+        "players_distinct_images": {
+          "name": "players_distinct_images",
+          "value": "\"players\".\"current_image_id\" <> \"players\".\"next_image_id\""
+        },
+        "players_leaderboard_visible_boolean": {
+          "name": "players_leaderboard_visible_boolean",
+          "value": "\"players\".\"leaderboard_visible\" IN (0, 1)"
+        }
+      }
+    }
+  },
+  "views": {},
+  "enums": {},
+  "_meta": {
+    "schemas": {},
+    "tables": {},
+    "columns": {}
+  },
+  "internal": {
+    "indexes": {
+      "players_leaderboard_idx": {
+        "columns": {
+          "\"sandwiches_fed\" DESC": {
+            "isExpression": true
+          },
+          "coalesce(\"last_accepted_at_ms\", \"created_at_ms\")": {
+            "isExpression": true
+          }
+        }
+      }
+    }
+  }
+}
