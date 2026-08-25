@@ -1,8 +1,8 @@
 # FatBoy Clicker
 
-A one-screen browser clicker game for FatBoy ice cream sandwiches. Players pick
-a nickname, feed locally cached synthetic portraits, and compete on a public
-top-10 leaderboard.
+A one-screen Three.js browser clicker game for FatBoy ice cream sandwiches.
+Players pick a nickname, toss a textured 3D FatBoy at the mouth of locally
+cached synthetic portraits, and compete on a public top-10 leaderboard.
 
 ## Local development
 

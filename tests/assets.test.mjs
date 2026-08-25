@@ -45,6 +45,7 @@ test("approved brand assets and provenance are present", async () => {
     "public/brand/fatboy-logo.png",
     "public/brand/fatboy-vanilla-6-pack.webp",
     "public/brand/vanilla-sandwich.webp",
+    "public/og-3d.png",
   ]) {
     const file = await stat(new URL(path, projectRoot));
     assert.ok(file.size > 10_000, `${path} is unexpectedly small`);
@@ -58,4 +59,16 @@ test("approved brand assets and provenance are present", async () => {
     (manifest.match(/^    id:/gm) ?? []).length,
   );
   assert.match(provenance, /Open Pravatar usage licence/);
+});
+
+test("the optimized 3D FatBoy model is local and web-sized", async () => {
+  const model = await readFile(
+    new URL("public/models/fatboy-sandwich.glb", projectRoot),
+  );
+
+  assert.equal(model.subarray(0, 4).toString("ascii"), "glTF");
+  assert.equal(model.readUInt32LE(4), 2, "expected a glTF 2.0 binary");
+  assert.equal(model.readUInt32LE(8), model.length, "GLB length must match");
+  assert.ok(model.length > 100_000, "3D model is unexpectedly small");
+  assert.ok(model.length < 5_000_000, "3D model is too large for gameplay");
 });

@@ -131,7 +131,6 @@ button:disabled {
 
 .sandwich-flight {
   position: absolute;
-  z-index: 12;
   width: clamp(145px, 22vw, 290px);
   height: auto;
   object-fit: contain;
@@ -139,6 +138,24 @@ button:disabled {
   pointer-events: none;
   animation: sandwich-feed 210ms cubic-bezier(0.18, 0.76, 0.28, 1) both;
   transform-origin: center;
+}
+
+.fatboy-projectile-layer {
+  position: absolute;
+  z-index: 12;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.fatboy-projectile-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.sandwich-flight-fallback {
+  z-index: 1;
 }
 
 .pack-reload {
@@ -486,6 +503,12 @@ button:disabled {
   pointer-events: none;
 }
 
+.footer-left {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
 .player-line {
   display: flex;
   align-items: center;
@@ -500,6 +523,33 @@ button:disabled {
   font-weight: 650;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.site-disclaimer {
+  max-width: min(68vw, 44rem);
+  margin: 0;
+  color: rgb(255 255 255 / 62%);
+  font-size: clamp(0.58rem, 0.72vw, 0.66rem);
+  line-height: 1.4;
+}
+
+.site-disclaimer a {
+  color: rgb(255 255 255 / 82%);
+  text-decoration: underline;
+  text-decoration-color: rgb(255 255 255 / 42%);
+  text-underline-offset: 0.2em;
+  pointer-events: auto;
+}
+
+.site-disclaimer a:hover {
+  color: #ffffff;
+  text-decoration-color: #ffffff;
+}
+
+.site-disclaimer a:focus-visible {
+  border-radius: 2px;
+  outline: 2px solid #ffffff;
+  outline-offset: 3px;
 }
 
 .save-state {
@@ -716,7 +766,7 @@ button:disabled {
   .leaderboard-plain {
     top: auto;
     right: max(18px, env(safe-area-inset-right));
-    bottom: 92px;
+    bottom: 112px;
     width: min(16rem, 62vw);
   }
 
@@ -738,6 +788,11 @@ button:disabled {
 
   .player-line > span:first-child {
     max-width: 44vw;
+  }
+
+  .site-disclaimer {
+    max-width: min(76vw, 34rem);
+    font-size: 0.56rem;
   }
 
   .plain-dialog-backdrop {
@@ -783,7 +838,7 @@ button:disabled {
   }
 
   .leaderboard-plain {
-    bottom: 84px;
+    bottom: 108px;
   }
 
   .save-state {

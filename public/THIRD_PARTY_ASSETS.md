@@ -10,6 +10,10 @@ Source review date: 2026-08-25.
 
 FatBoy and Casper's brand assets remain the property of their respective rights holders and are included under the project's stated brand authorization.
 
+## 3D model
+
+- `models/fatboy-sandwich.glb` — user-supplied Meshy-generated FatBoy model, simplified from roughly 3.1 million to 62,728 triangles and resized to 1024px WebP textures for real-time browser rendering. The optimized file retains the supplied model's geometry and material artwork.
+
 ## Open Pravatar portraits
 
 The files in `portraits/` are locally cached, pre-generated synthetic images from [Open Pravatar](https://openpravatar.com/docs). They are not photographs of real people. The catalog records every selected image as `review_status: approved`, `subject_count: 1`, and `license: synthetic-commercial`.

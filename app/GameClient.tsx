@@ -4,6 +4,7 @@
    portrait crop geometry and mouth targeting share the exact rendered box. */
 /* eslint-disable @next/next/no-img-element */
 
+import dynamic from "next/dynamic";
 import {
   type CSSProperties,
   type FormEvent,
@@ -19,6 +20,12 @@ import {
   type CoverGeometry,
   normalizedImagePointToStage,
 } from "../lib/client/portrait-geometry";
+
+const FatboyProjectile = dynamic(
+  () =>
+    import("./FatboyProjectile").then((module) => module.FatboyProjectile),
+  { ssr: false },
+);
 
 type MouthTarget = {
   cx: number;
@@ -683,7 +690,7 @@ export function GameClient() {
     setGlobalTotal((current) => (current === null ? null : current + 1));
     setStreak(previousStreak + 1);
     setAnnouncement(
-      `Sandwich fed. Your total is ${snapshot.player.sandwichesFed + 1}.`,
+      `FatBoy tossed. Your total is ${snapshot.player.sandwichesFed + 1}.`,
     );
 
     const feedRequest = requestJson<ApiGameResponse>("/api/feed", {
@@ -884,24 +891,17 @@ export function GameClient() {
               type="button"
               onClick={handleFeed}
               disabled={isFeeding || offline}
-              aria-label="Feed this person a FatBoy ice cream sandwich"
+              aria-label="Throw a 3D FatBoy ice cream sandwich to this person"
               aria-describedby="mouth-instructions"
             >
               <span className="sr-only">Feed sandwich</span>
             </button>
           ) : null}
 
-          {sandwichTarget ? (
-            <img
-              className="sandwich-flight"
-              src="/brand/vanilla-sandwich.webp"
-              alt=""
-              width="700"
-              height="420"
-              style={{ left: sandwichTarget.x, top: sandwichTarget.y }}
-              aria-hidden="true"
-            />
-          ) : null}
+          <FatboyProjectile
+            target={sandwichTarget}
+            reducedMotion={reducedMotion}
+          />
 
           {packEmpty && !isFeeding && !bootstrapError ? (
             <section
@@ -952,7 +952,7 @@ export function GameClient() {
             <p className="game-instruction" id="mouth-instructions">
               {packEmpty
                 ? "pack empty · click the box"
-                : `click the mouth · ${player?.sandwichesRemaining ?? 6} left in pack`}
+                : `tap the mouth · toss a 3D FatBoy · ${player?.sandwichesRemaining ?? 6} left`}
             </p>
           </div>
           <dl className="stats-line" aria-label="Game statistics">
@@ -994,18 +994,35 @@ export function GameClient() {
         </aside>
 
         <footer className="overlay-bottom">
-          <div className="player-line">
-            <span>{currentDisplayName ?? "getting ready…"}</span>
-            <button
-              className="text-action"
-              type="button"
-              onClick={() => setLeaderboardOpen((open) => !open)}
-              disabled={!player || isFeeding || isOpeningPack}
-              aria-expanded={leaderboardOpen}
-              aria-controls="leaderboard-panel"
-            >
-              leaderboard
-            </button>
+          <div className="footer-left">
+            <div className="player-line">
+              <span>{currentDisplayName ?? "getting ready…"}</span>
+              <button
+                className="text-action"
+                type="button"
+                onClick={() => setLeaderboardOpen((open) => !open)}
+                disabled={!player || isFeeding || isOpeningPack}
+                aria-expanded={leaderboardOpen}
+                aria-controls="leaderboard-panel"
+              >
+                leaderboard
+              </button>
+            </div>
+            <p className="site-disclaimer">
+              <a
+                href="https://www.mistakes.party/"
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Visit mistakes.party (opens in a new tab)"
+              >
+                mistakes.party
+              </a>
+              <span aria-hidden="true"> · </span>
+              <span>
+                This game is made for humor and is not affiliated with,
+                endorsed by, or sponsored by any real brand.
+              </span>
+            </p>
           </div>
           <p className="save-state" role="status">
             {offline
