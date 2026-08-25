@@ -104,12 +104,7 @@ type Notice = {
 type DialogMode = "required" | "rename";
 
 const numberFormatter = new Intl.NumberFormat("en-US");
-const timeFormatter = new Intl.DateTimeFormat("en-US", {
-  hour: "numeric",
-  minute: "2-digit",
-});
 const nicknamePattern = /^[\p{L}\p{N}]+(?: [\p{L}\p{N}]+)*$/u;
-const placeholderRows = Array.from({ length: 10 }, (_, index) => index + 1);
 
 class ApiError extends Error {
   status: number;
@@ -255,25 +250,6 @@ function useReducedMotion() {
   return reducedMotion;
 }
 
-function StatCard({
-  label,
-  value,
-  accent,
-}: {
-  label: string;
-  value: number | null;
-  accent?: boolean;
-}) {
-  return (
-    <div className={accent ? "stat-card stat-card-accent" : "stat-card"}>
-      <span className="stat-label">{label}</span>
-      <strong className="stat-value">
-        {value === null ? "—" : numberFormatter.format(value)}
-      </strong>
-    </div>
-  );
-}
-
 function LeaderboardContents({
   leaders,
   currentDisplayName,
@@ -284,27 +260,11 @@ function LeaderboardContents({
   loading: boolean;
 }) {
   if (loading) {
-    return (
-      <ol className="leader-list" aria-label="Leaderboard loading">
-        {placeholderRows.map((rank) => (
-          <li className="leader-row leader-row-loading" key={rank}>
-            <span className="leader-rank">{rank}</span>
-            <span className="leader-skeleton" />
-            <span className="leader-skeleton leader-skeleton-score" />
-          </li>
-        ))}
-      </ol>
-    );
+    return <p className="leaderboard-status">Loading…</p>;
   }
 
   if (leaders.length === 0) {
-    return (
-      <div className="empty-leaderboard">
-        <span className="empty-ribbon">First scoop</span>
-        <strong>The leaderboard is wide open.</strong>
-        <p>Feed the first sandwich and put your name on the board.</p>
-      </div>
-    );
+    return <p className="leaderboard-status">No scores yet.</p>;
   }
 
   return (
@@ -313,16 +273,13 @@ function LeaderboardContents({
         const isCurrentPlayer = leader.displayName === currentDisplayName;
         return (
           <li
-            className={`leader-row leader-row-${Math.min(leader.rank, 4)}${
-              isCurrentPlayer ? " leader-row-current" : ""
-            }`}
+            className={isCurrentPlayer ? "leader-row leader-row-current" : "leader-row"}
             key={`${leader.rank}-${leader.displayName}`}
             aria-current={isCurrentPlayer ? "true" : undefined}
           >
             <span className="leader-rank">{leader.rank}</span>
             <span className="leader-name" title={leader.displayName}>
               {leader.displayName}
-              {isCurrentPlayer ? <small>You</small> : null}
             </span>
             <strong className="leader-score">
               {numberFormatter.format(leader.sandwichesFed)}
@@ -331,38 +288,6 @@ function LeaderboardContents({
         );
       })}
     </ol>
-  );
-}
-
-function LeaderboardHeader({
-  globalTotal,
-  asOf,
-}: {
-  globalTotal: number | null;
-  asOf: string | null;
-}) {
-  let updatedLabel = "Connecting…";
-  if (asOf) {
-    const updatedAt = new Date(asOf);
-    if (!Number.isNaN(updatedAt.getTime())) {
-      updatedLabel = `Updated ${timeFormatter.format(updatedAt)}`;
-    }
-  }
-
-  return (
-    <div className="leaderboard-heading">
-      <div>
-        <span className="eyebrow eyebrow-red">Live worldwide</span>
-        <h2>Top feeders</h2>
-      </div>
-      <div className="leaderboard-total">
-        <span>All time</span>
-        <strong>
-          {globalTotal === null ? "—" : numberFormatter.format(globalTotal)}
-        </strong>
-        <small>{updatedLabel}</small>
-      </div>
-    </div>
   );
 }
 
@@ -388,59 +313,47 @@ function NicknameDialog({
   const isRequired = mode === "required";
 
   return (
-    <div className="modal-backdrop" role="presentation">
+    <div className="plain-dialog-backdrop" role="presentation">
       <section
-        className="modal-card nickname-modal"
+        className="plain-dialog"
         role="dialog"
         aria-modal="true"
         aria-labelledby="nickname-title"
         aria-describedby="nickname-description"
       >
-        <div className="modal-brand">
-          <img
-            src="/brand/fatboy-logo.png"
-            alt="FatBoy"
-            width="250"
-            height="96"
-          />
-          <span>Feed Frenzy</span>
-        </div>
-        <span className="eyebrow eyebrow-red">
-          {isRequired ? "Pick your player name" : "Change your name"}
-        </span>
+        <p className="plain-kicker">FatBoy Feed Frenzy</p>
         <h2 id="nickname-title">
-          {isRequired ? "Ready to feed the world?" : "Fresh name, same score."}
+          {isRequired ? "Choose a name." : "Change your name."}
         </h2>
         <p id="nickname-description">
-          Your progress stays on this browser. We’ll add a short tag so every
-          name is unique on the leaderboard.
+          Progress stays on this browser. We’ll add a four-character tag.
         </p>
 
         <form onSubmit={onSubmit} noValidate>
-          <label htmlFor="nickname-input">Nickname</label>
-          <div className="nickname-input-wrap">
-            <input
-              id="nickname-input"
-              name="nickname"
-              type="text"
-              value={value}
-              onChange={(event) =>
-                onChange(Array.from(event.target.value).slice(0, 24).join(""))
-              }
-              minLength={2}
-              maxLength={24}
-              pattern="[\p{L}\p{N} ]+"
-              autoComplete="nickname"
-              autoCapitalize="words"
-              autoFocus
-              aria-invalid={error ? "true" : "false"}
-              aria-describedby={error ? "nickname-error" : "nickname-hint"}
-              placeholder="Ice Cream Hero"
-              disabled={saving}
-            />
-            <span aria-hidden="true">#••••</span>
-          </div>
-          <small id="nickname-hint">2–16 letters, numbers, and spaces</small>
+          <label className="sr-only" htmlFor="nickname-input">Nickname</label>
+          <input
+            className="plain-name-input"
+            id="nickname-input"
+            name="nickname"
+            type="text"
+            value={value}
+            onChange={(event) =>
+              onChange(Array.from(event.target.value).slice(0, 24).join(""))
+            }
+            minLength={2}
+            maxLength={24}
+            pattern="[\p{L}\p{N} ]+"
+            autoComplete="nickname"
+            autoCapitalize="words"
+            autoFocus
+            aria-invalid={error ? "true" : "false"}
+            aria-describedby={error ? "nickname-error" : "nickname-hint"}
+            placeholder="Your nickname"
+            disabled={saving}
+          />
+          <small id="nickname-hint">
+            {saving ? "Saving…" : "2–16 letters, numbers, and spaces · press Enter"}
+          </small>
           {error ? (
             <p className="form-error" id="nickname-error" role="alert">
               {error}
@@ -452,24 +365,24 @@ function NicknameDialog({
             </p>
           ) : null}
 
-          <div className="modal-actions">
+          <div className="plain-actions">
+            <button
+              className="text-action"
+              type="submit"
+              disabled={saving || offline}
+            >
+              {saving ? "saving…" : isRequired ? "start" : "save"}
+            </button>
             {isRequired ? null : (
               <button
-                className="button button-ghost"
+                className="text-action"
                 type="button"
                 onClick={onClose}
                 disabled={saving}
               >
-                Cancel
+                cancel
               </button>
             )}
-            <button
-              className="button button-primary"
-              type="submit"
-              disabled={saving || offline}
-            >
-              {saving ? "Saving…" : isRequired ? "Start feeding" : "Save name"}
-            </button>
           </div>
         </form>
       </section>
@@ -491,19 +404,16 @@ function ResetDialog({
   onConfirm: () => void;
 }) {
   return (
-    <div className="modal-backdrop" role="presentation">
+    <div className="plain-dialog-backdrop" role="presentation">
       <section
-        className="modal-card reset-modal"
+        className="plain-dialog"
         role="alertdialog"
         aria-modal="true"
         aria-labelledby="reset-title"
         aria-describedby="reset-description"
       >
-        <span className="modal-warning" aria-hidden="true">
-          !
-        </span>
-        <span className="eyebrow eyebrow-red">Reset progress</span>
-        <h2 id="reset-title">Start over from zero?</h2>
+        <p className="plain-kicker">Reset progress</p>
+        <h2 id="reset-title">Start over?</h2>
         <p id="reset-description">
           This permanently removes your nickname and sandwich count from this
           browser. It cannot be undone.
@@ -518,23 +428,23 @@ function ResetDialog({
             Reconnect before resetting progress.
           </p>
         ) : null}
-        <div className="modal-actions">
+        <div className="plain-actions">
           <button
-            className="button button-ghost"
+            className="text-action"
             type="button"
             onClick={onCancel}
             disabled={resetting}
             autoFocus
           >
-            Keep playing
+            cancel
           </button>
           <button
-            className="button button-danger"
+            className="text-action"
             type="button"
             onClick={onConfirm}
             disabled={resetting || offline}
           >
-            {resetting ? "Resetting…" : "Yes, reset everything"}
+            {resetting ? "resetting…" : "reset everything"}
           </button>
         </div>
       </section>
@@ -549,7 +459,6 @@ export function GameClient() {
   >(null);
   const [leaders, setLeaders] = useState<Leader[]>([]);
   const [globalTotal, setGlobalTotal] = useState<number | null>(null);
-  const [leaderboardAsOf, setLeaderboardAsOf] = useState<string | null>(null);
   const [leaderboardLoading, setLeaderboardLoading] = useState(true);
   const [loading, setLoading] = useState(true);
   const [bootstrapError, setBootstrapError] = useState<string | null>(null);
@@ -558,11 +467,6 @@ export function GameClient() {
   const [isFeeding, setIsFeeding] = useState(false);
   const [geometry, setGeometry] = useState<CoverGeometry | null>(null);
   const [sandwichTarget, setSandwichTarget] = useState<{
-    x: number;
-    y: number;
-  } | null>(null);
-  const [missMarker, setMissMarker] = useState<{
-    id: number;
     x: number;
     y: number;
   } | null>(null);
@@ -580,7 +484,6 @@ export function GameClient() {
   const portraitImageRef = useRef<HTMLImageElement>(null);
   const feedLockRef = useRef(false);
   const noticeTimerRef = useRef<number | null>(null);
-  const missTimerRef = useRef<number | null>(null);
   const reducedMotion = useReducedMotion();
 
   const showNotice = useCallback((message: string, tone: Notice["tone"]) => {
@@ -599,7 +502,6 @@ export function GameClient() {
   const applyLeaderboard = useCallback((data: LeaderboardResponse) => {
     setLeaders(data.leaders);
     setGlobalTotal(data.globalTotal);
-    setLeaderboardAsOf(data.asOf);
     setLeaderboardLoading(false);
   }, []);
 
@@ -733,9 +635,6 @@ export function GameClient() {
       if (noticeTimerRef.current !== null) {
         window.clearTimeout(noticeTimerRef.current);
       }
-      if (missTimerRef.current !== null) {
-        window.clearTimeout(missTimerRef.current);
-      }
     };
   }, []);
 
@@ -799,24 +698,9 @@ export function GameClient() {
     };
   }, [displayPortrait, geometry]);
 
-  const handleMiss = (event: ReactMouseEvent<HTMLDivElement>) => {
-    const stageRect = event.currentTarget.getBoundingClientRect();
-    const marker = {
-      id: Date.now(),
-      x: event.clientX - stageRect.left - event.currentTarget.clientLeft,
-      y: event.clientY - stageRect.top - event.currentTarget.clientTop,
-    };
-
-    if (missTimerRef.current !== null) {
-      window.clearTimeout(missTimerRef.current);
-    }
-    setMissMarker(marker);
+  const handleMiss = () => {
     setStreak(0);
-    showNotice("Missed! Aim for the pulsing mouth target.", "miss");
-    missTimerRef.current = window.setTimeout(() => {
-      setMissMarker((current) => (current?.id === marker.id ? null : current));
-      missTimerRef.current = null;
-    }, reducedMotion ? 300 : 800);
+    showNotice("Miss. Click the mouth.", "miss");
   };
 
   const resyncAfterFeedError = useCallback(
@@ -1013,7 +897,6 @@ export function GameClient() {
       setDisplayPortrait(null);
       setLeaders([]);
       setGlobalTotal(null);
-      setLeaderboardAsOf(null);
       setStreak(0);
       setNicknameInput("");
       setNicknameMode(null);
@@ -1033,231 +916,152 @@ export function GameClient() {
 
   return (
     <div className="game-shell">
-      <div className="background-scoop background-scoop-one" />
-      <div className="background-scoop background-scoop-two" />
-
-      <header
-        className="site-header"
+      <div
+        className="game-scene"
         inert={modalOpen ? true : undefined}
         aria-hidden={modalOpen ? true : undefined}
       >
-        <a className="brand-lockup" href="#game" aria-label="FatBoy Feed Frenzy home">
-          <img
-            className="brand-logo"
-            src="/brand/fatboy-logo.png"
-            alt="FatBoy"
-            width="250"
-            height="96"
-          />
-          <span className="brand-divider" aria-hidden="true" />
-          <span className="brand-game-name">Feed Frenzy</span>
-        </a>
-
-        <div className="player-controls">
-          <div className="connection-status" role="status">
-            <span
-              className={offline ? "status-dot status-dot-offline" : "status-dot"}
+        <main
+          className={`portrait-stage${isFeeding ? " portrait-stage-feeding" : ""}`}
+          id="game"
+          ref={stageRef}
+          onClick={handleMiss}
+          aria-busy={loading || isFeeding}
+        >
+          {portrait ? (
+            <img
+              className="portrait-photo"
+              key={portrait.id}
+              ref={portraitImageRef}
+              src={portrait.src}
+              alt={portrait.alt}
+              width="768"
+              height="768"
+              draggable={false}
+              onLoad={recalculateGeometry}
             />
-            {offline ? "Offline" : loading ? "Connecting" : isFeeding ? "Saving" : "Saved"}
-          </div>
-          <div className="player-identity">
-            <span>Your player</span>
-            <strong>{currentDisplayName ?? "Getting ready…"}</strong>
-          </div>
-          <button
-            className="header-action"
-            type="button"
-            onClick={openRenameDialog}
-            disabled={!player || isFeeding}
-          >
-            Rename
-          </button>
-          <button
-            className="header-action header-action-danger"
-            type="button"
-            onClick={() => {
-              setResetError(null);
-              setResetOpen(true);
-            }}
-            disabled={!player || isFeeding}
-          >
-            Reset
-          </button>
-        </div>
-      </header>
+          ) : null}
 
-      {offline ? (
-        <div className="offline-banner" role="status">
-          You’re offline — reconnect to feed another sandwich.
-        </div>
-      ) : null}
-
-      <main
-        className="game-main"
-        id="game"
-        inert={modalOpen ? true : undefined}
-        aria-hidden={modalOpen ? true : undefined}
-      >
-        <div className="play-layout">
-          <section className="play-column" aria-labelledby="game-title">
-            <div className="game-intro">
-              <div>
-                <span className="eyebrow">America’s #1 ice cream sandwich</span>
-                <h1 id="game-title">Feed the world.</h1>
-              </div>
-              <p id="mouth-instructions">
-                Tap the pulsing mouth, serve a FatBoy, meet someone new.
-              </p>
+          {loading ? (
+            <div className="stage-state" role="status">
+              <strong>Loading…</strong>
             </div>
+          ) : null}
 
-            <div className="stats-grid" aria-label="Game statistics">
-              <StatCard
-                label="You fed"
-                value={player?.sandwichesFed ?? null}
-                accent
-              />
-              <StatCard label="Everyone fed" value={globalTotal} />
-              <StatCard label="Streak" value={streak} />
+          {!loading && bootstrapError ? (
+            <div className="stage-state" role="alert">
+              <strong>Something went wrong.</strong>
+              <span>{bootstrapError}</span>
+              <button
+                className="text-action"
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  void loadEverything();
+                }}
+              >
+                try again
+              </button>
             </div>
+          ) : null}
 
-            <div
-              className={`portrait-stage${isFeeding ? " portrait-stage-feeding" : ""}`}
-              ref={stageRef}
-              onClick={handleMiss}
-              aria-busy={loading || isFeeding}
+          {portrait && "mouth" in portrait && !bootstrapError ? (
+            <button
+              className="mouth-target"
+              style={mouthButtonStyle}
+              type="button"
+              onClick={handleFeed}
+              disabled={isFeeding || offline}
+              aria-label="Feed this person a FatBoy ice cream sandwich"
+              aria-describedby="mouth-instructions"
             >
-              {portrait ? (
-                <img
-                  className="portrait-photo"
-                  key={portrait.id}
-                  ref={portraitImageRef}
-                  src={portrait.src}
-                  alt={portrait.alt}
-                  width="768"
-                  height="768"
-                  draggable={false}
-                  onLoad={recalculateGeometry}
-                />
-              ) : null}
+              <span className="sr-only">Feed sandwich</span>
+            </button>
+          ) : null}
 
-              {loading ? (
-                <div className="stage-state" role="status">
-                  <span className="loading-scoop" aria-hidden="true" />
-                  <strong>Opening the freezer…</strong>
-                  <span>Your first face is on the way.</span>
-                </div>
-              ) : null}
-
-              {!loading && bootstrapError ? (
-                <div className="stage-state stage-error" role="alert">
-                  <span className="stage-state-icon" aria-hidden="true">
-                    !
-                  </span>
-                  <strong>We hit a brain freeze.</strong>
-                  <span>{bootstrapError}</span>
-                  <button
-                    className="button button-primary"
-                    type="button"
-                    onClick={() => void loadEverything()}
-                  >
-                    Try again
-                  </button>
-                </div>
-              ) : null}
-
-              {portrait && "mouth" in portrait && !bootstrapError ? (
-                <>
-                  <div className="target-label" aria-hidden="true">
-                    Target ready
-                  </div>
-                  <button
-                    className="mouth-target"
-                    style={mouthButtonStyle}
-                    type="button"
-                    onClick={handleFeed}
-                    disabled={isFeeding || offline}
-                    aria-label="Feed this person a FatBoy ice cream sandwich"
-                    aria-describedby="mouth-instructions"
-                  >
-                    <span className="mouth-target-dot" aria-hidden="true" />
-                    <span className="sr-only">Feed sandwich</span>
-                  </button>
-                </>
-              ) : null}
-
-              {sandwichTarget ? (
-                <img
-                  className="sandwich-flight"
-                  src="/brand/vanilla-sandwich.webp"
-                  alt=""
-                  width="700"
-                  height="420"
-                  style={{ left: sandwichTarget.x, top: sandwichTarget.y }}
-                  aria-hidden="true"
-                />
-              ) : null}
-
-              {missMarker ? (
-                <span
-                  className="miss-marker"
-                  style={{ left: missMarker.x, top: missMarker.y }}
-                  aria-hidden="true"
-                >
-                  <span />
-                </span>
-              ) : null}
-
-              {portrait ? (
-                <div className="stage-instruction" aria-hidden="true">
-                  <span className="instruction-pulse" />
-                  Aim for the mouth
-                </div>
-              ) : null}
-            </div>
-          </section>
-
-          <aside
-            className="leaderboard-card leaderboard-desktop"
-            aria-label="Leaderboard"
-          >
-            <LeaderboardHeader globalTotal={globalTotal} asOf={leaderboardAsOf} />
-            <LeaderboardContents
-              leaders={leaders}
-              currentDisplayName={currentDisplayName}
-              loading={leaderboardLoading}
+          {sandwichTarget ? (
+            <img
+              className="sandwich-flight"
+              src="/brand/vanilla-sandwich.webp"
+              alt=""
+              width="700"
+              height="420"
+              style={{ left: sandwichTarget.x, top: sandwichTarget.y }}
+              aria-hidden="true"
             />
-            <p className="leaderboard-note">
-              Scores refresh every 10 seconds. Progress is saved on this browser.
-            </p>
-          </aside>
+          ) : null}
+        </main>
 
-          <details className="leaderboard-card leaderboard-mobile">
-            <summary>
-              <span>
-                <span className="eyebrow eyebrow-red">Live worldwide</span>
-                <strong>Top feeders</strong>
-              </span>
-              <span className="mobile-global-total">
-                {globalTotal === null ? "—" : numberFormatter.format(globalTotal)} fed
-              </span>
-              <span className="details-chevron" aria-hidden="true" />
-            </summary>
-            <div className="mobile-leaderboard-content">
-              <LeaderboardContents
-                leaders={leaders}
-                currentDisplayName={currentDisplayName}
-                loading={leaderboardLoading}
-              />
-              <p className="leaderboard-note">
-                Scores refresh every 10 seconds. Progress is saved on this browser.
-              </p>
+        <header className="overlay-top">
+          <div>
+            <h1 className="brand-text">FatBoy Feed Frenzy</h1>
+            <p className="game-instruction" id="mouth-instructions">
+              click the mouth
+            </p>
+          </div>
+          <dl className="stats-line" aria-label="Game statistics">
+            <div>
+              <dt>you</dt>
+              <dd>{player ? numberFormatter.format(player.sandwichesFed) : "—"}</dd>
             </div>
-          </details>
-        </div>
-      </main>
+            <div>
+              <dt>everyone</dt>
+              <dd>{globalTotal === null ? "—" : numberFormatter.format(globalTotal)}</dd>
+            </div>
+            <div>
+              <dt>streak</dt>
+              <dd>{numberFormatter.format(streak)}</dd>
+            </div>
+          </dl>
+        </header>
+
+        <aside className="leaderboard-plain" aria-label="Leaderboard">
+          <p className="overlay-label">Top feeders</p>
+          <LeaderboardContents
+            leaders={leaders}
+            currentDisplayName={currentDisplayName}
+            loading={leaderboardLoading}
+          />
+        </aside>
+
+        <footer className="overlay-bottom">
+          <div className="player-line">
+            <span>{currentDisplayName ?? "getting ready…"}</span>
+            <button
+              className="text-action"
+              type="button"
+              onClick={openRenameDialog}
+              disabled={!player || isFeeding}
+            >
+              rename
+            </button>
+            <span aria-hidden="true">·</span>
+            <button
+              className="text-action"
+              type="button"
+              onClick={() => {
+                setResetError(null);
+                setResetOpen(true);
+              }}
+              disabled={!player || isFeeding}
+            >
+              reset
+            </button>
+          </div>
+          <p className="save-state" role="status">
+            {offline ? "offline" : loading ? "connecting" : isFeeding ? "saving" : "saved"}
+          </p>
+        </footer>
+
+        {offline ? (
+          <p className="offline-plain" role="status">
+            offline — reconnect to play
+          </p>
+        ) : null}
+      </div>
 
       {notice ? (
-        <div className={`game-toast game-toast-${notice.tone}`} role="status">
+        <div className="game-toast" role="status">
           {notice.message}
         </div>
       ) : null}
