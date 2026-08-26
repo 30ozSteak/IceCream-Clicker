@@ -4,6 +4,10 @@ import { type CSSProperties, useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import {
+  NO_THROW_SPIN,
+  type ThrowSpin,
+} from "../lib/client/throw-motion";
 
 type Point = {
   x: number;
@@ -16,6 +20,7 @@ type FatboyProjectileProps = {
   modelUrl?: string;
   onReadyChange?: (ready: boolean) => void;
   reducedMotion: boolean;
+  spin?: ThrowSpin;
   target: Point | null;
 };
 
@@ -29,6 +34,8 @@ type Runtime = {
 };
 
 type SandwichFlightStyle = CSSProperties & {
+  "--flight-duration": string;
+  "--flight-spin-end": string;
   "--flight-target-x": string;
   "--flight-target-y": string;
 };
@@ -96,11 +103,12 @@ function quadraticPoint(
 }
 
 export function FatboyProjectile({
-  flightDurationMs = 560,
+  flightDurationMs = 800,
   idle = false,
   modelUrl = FATBOY_MODELS.vanilla,
   onReadyChange,
   reducedMotion,
+  spin = NO_THROW_SPIN,
   target,
 }: FatboyProjectileProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -343,9 +351,9 @@ export function FatboyProjectile({
       const progress = linearProgress * linearProgress * (3 - 2 * linearProgress);
       model.position.copy(quadraticPoint(start, control, end, progress));
       model.rotation.set(
-        -0.18 + progress * 0.26,
-        0.52 + progress * Math.PI * 0.82,
-        -0.08 + progress * 0.2,
+        -0.18 + progress * (0.26 + spin.xTurns * Math.PI * 2),
+        0.52 + progress * (Math.PI * 0.82 + spin.yTurns * Math.PI * 2),
+        -0.08 + progress * (0.2 + spin.zTurns * Math.PI * 2),
       );
       const scale = THREE.MathUtils.lerp(
         startSize,
@@ -374,6 +382,9 @@ export function FatboyProjectile({
     idle,
     loadStatus,
     reducedMotion,
+    spin.xTurns,
+    spin.yTurns,
+    spin.zTurns,
     targetX,
     targetY,
     viewportVersion,
@@ -383,6 +394,8 @@ export function FatboyProjectile({
     ? {
         left: target.x,
         top: target.y,
+        "--flight-duration": `${Math.max(320, flightDurationMs)}ms`,
+        "--flight-spin-end": `${8 + spin.zTurns * 360}deg`,
         "--flight-target-x": `${target.x}px`,
         "--flight-target-y": `${target.y}px`,
       }

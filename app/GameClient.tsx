@@ -22,6 +22,11 @@ import {
   type CoverGeometry,
   normalizedImagePointToStage,
 } from "../lib/client/portrait-geometry";
+import {
+  createThrowSpin,
+  NO_THROW_SPIN,
+  type ThrowSpin,
+} from "../lib/client/throw-motion";
 import { getFeedReaction } from "../lib/feed-reactions";
 import {
   getClearedPackHistory,
@@ -156,6 +161,8 @@ type ActiveReloadStyle = CSSProperties & {
 };
 
 type SandwichFlightStyle = CSSProperties & {
+  "--flight-duration": string;
+  "--flight-spin-end": string;
   "--flight-target-x": string;
   "--flight-target-y": string;
 };
@@ -188,7 +195,7 @@ type FeedReaction = {
 
 const numberFormatter = new Intl.NumberFormat("en-US");
 const nicknamePattern = /^[\p{L}\p{N}]+(?: [\p{L}\p{N}]+)*$/u;
-const FATBOY_THROW_DURATION_MS = 560;
+const FATBOY_THROW_DURATION_MS = 800;
 const FATBOY_REDUCED_MOTION_DURATION_MS = 420;
 
 class ApiError extends Error {
@@ -637,6 +644,7 @@ export function GameClient() {
   const [accessibleReloadPending, setAccessibleReloadPending] = useState(false);
   const [threeProjectileReady, setThreeProjectileReady] = useState(false);
   const [shotUsesThree, setShotUsesThree] = useState(false);
+  const [throwSpin, setThrowSpin] = useState<ThrowSpin>(NO_THROW_SPIN);
   const [geometry, setGeometry] = useState<CoverGeometry | null>(null);
   const [sandwichTarget, setSandwichTarget] = useState<{
     x: number;
@@ -989,6 +997,7 @@ export function GameClient() {
         };
 
     setFeedReaction(null);
+    setThrowSpin(createThrowSpin());
     setSandwichTarget(target);
     setGame({
       ...snapshot,
@@ -2178,6 +2187,7 @@ export function GameClient() {
             }
             onReadyChange={setThreeProjectileReady}
             reducedMotion={reducedMotion}
+            spin={throwSpin}
           />
           {sandwichTarget && !shotUsesThree ? (
             <span
@@ -2186,6 +2196,8 @@ export function GameClient() {
                 {
                   left: sandwichTarget.x,
                   top: sandwichTarget.y,
+                  "--flight-duration": `${FATBOY_THROW_DURATION_MS}ms`,
+                  "--flight-spin-end": `${8 + throwSpin.zTurns * 360}deg`,
                   "--flight-target-x": `${sandwichTarget.x}px`,
                   "--flight-target-y": `${sandwichTarget.y}px`,
                 } as SandwichFlightStyle
@@ -2226,15 +2238,15 @@ export function GameClient() {
               aria-describedby="mouth-instructions"
             >
               <span className="fatboy-launcher-prompt" aria-hidden="true">
-                <strong>
-                  {isFeeding
-                    ? sandwichTarget
+                {isFeeding ? (
+                  <strong>
+                    {sandwichTarget
                       ? "Tossing…"
                       : packEmpty
                         ? "Box cleared!"
-                        : "Getting next…"
-                    : "Tap the FatBoy"}
-                </strong>
+                        : "Getting next…"}
+                  </strong>
+                ) : null}
                 <span>{launcherGoal}</span>
               </span>
               {!threeProjectileReady ? (
@@ -2442,7 +2454,7 @@ export function GameClient() {
                     : `${reloadPack?.quantity ?? 0} treats · tap the box`
                 : showFeedTutorial
                   ? "feed them a FatBoy · tap below"
-                  : `${player?.sandwichesRemaining ?? 0} left · tap the FatBoy`}
+                  : `${player?.sandwichesRemaining ?? 0} left`}
             </p>
           </div>
           <div

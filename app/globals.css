@@ -168,8 +168,10 @@ button:disabled {
 }
 
 .sandwich-flight {
+  --flight-duration: 800ms;
   --flight-launch-x: 50vw;
   --flight-launch-y: max(72dvh, calc(100dvh - 154px));
+  --flight-spin-end: 8deg;
 
   position: absolute;
   z-index: 12;
@@ -178,7 +180,7 @@ button:disabled {
   object-fit: contain;
   filter: drop-shadow(0 16px 18px rgb(0 0 0 / 42%));
   pointer-events: none;
-  animation: sandwich-feed 560ms cubic-bezier(0.35, 0.05, 0.2, 1) both;
+  animation: sandwich-feed var(--flight-duration) cubic-bezier(0.35, 0.05, 0.2, 1) both;
   transform-origin: center;
 }
 
@@ -1235,7 +1237,7 @@ button:disabled {
     top: var(--flight-target-y);
     left: var(--flight-target-x);
     opacity: 1;
-    transform: translate(-50%, -50%) rotate(8deg) scale(0.3);
+    transform: translate(-50%, -50%) rotate(var(--flight-spin-end)) scale(0.3);
   }
 }
 
