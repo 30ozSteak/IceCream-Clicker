@@ -163,6 +163,7 @@ type ActiveReloadStyle = CSSProperties & {
 type SandwichFlightStyle = CSSProperties & {
   "--flight-duration": string;
   "--flight-spin-end": string;
+  "--flight-spin-mid": string;
   "--flight-target-x": string;
   "--flight-target-y": string;
 };
@@ -2198,6 +2199,7 @@ export function GameClient() {
                   top: sandwichTarget.y,
                   "--flight-duration": `${FATBOY_THROW_DURATION_MS}ms`,
                   "--flight-spin-end": `${8 + throwSpin.zTurns * 360}deg`,
+                  "--flight-spin-mid": `${throwSpin.zTurns * 216}deg`,
                   "--flight-target-x": `${sandwichTarget.x}px`,
                   "--flight-target-y": `${sandwichTarget.y}px`,
                 } as SandwichFlightStyle
@@ -2452,9 +2454,7 @@ export function GameClient() {
                   : reloadSession
                     ? reloadInteractionPrompt ?? "watch the timer"
                     : `${reloadPack?.quantity ?? 0} treats · tap the box`
-                : showFeedTutorial
-                  ? "feed them a FatBoy · tap below"
-                  : `${player?.sandwichesRemaining ?? 0} left`}
+                : "Click the person’s mouth"}
             </p>
           </div>
           <div

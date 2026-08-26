@@ -5,7 +5,10 @@ import * as THREE from "three";
 import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import {
+  calculateIdleRotation,
+  createThrowControlPoint,
   NO_THROW_SPIN,
+  quadraticThrowPoint,
   type ThrowSpin,
 } from "../lib/client/throw-motion";
 
@@ -36,6 +39,7 @@ type Runtime = {
 type SandwichFlightStyle = CSSProperties & {
   "--flight-duration": string;
   "--flight-spin-end": string;
+  "--flight-spin-mid": string;
   "--flight-target-x": string;
   "--flight-target-y": string;
 };
@@ -82,26 +86,6 @@ function disposeObject(root: THREE.Object3D) {
   materials.forEach(disposeMaterial);
 }
 
-function quadraticPoint(
-  start: THREE.Vector3,
-  control: THREE.Vector3,
-  end: THREE.Vector3,
-  progress: number,
-) {
-  const inverse = 1 - progress;
-  return new THREE.Vector3(
-    inverse * inverse * start.x +
-      2 * inverse * progress * control.x +
-      progress * progress * end.x,
-    inverse * inverse * start.y +
-      2 * inverse * progress * control.y +
-      progress * progress * end.y,
-    inverse * inverse * start.z +
-      2 * inverse * progress * control.z +
-      progress * progress * end.z,
-  );
-}
-
 export function FatboyProjectile({
   flightDurationMs = 800,
   idle = false,
@@ -113,7 +97,7 @@ export function FatboyProjectile({
 }: FatboyProjectileProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const runtimeRef = useRef<Runtime | null>(null);
-  const flightAnimationFrameRef = useRef<number | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
   const [viewportVersion, setViewportVersion] = useState(0);
   const [loadState, setLoadState] = useState<{
     modelUrl: string;
@@ -256,6 +240,7 @@ export function FatboyProjectile({
 
         const model = new THREE.Group();
         model.add(gltf.scene);
+        model.rotation.set(-0.18, 0.52, -0.08);
         model.visible = false;
         scene.add(model);
         runtime.model = model;
@@ -275,9 +260,9 @@ export function FatboyProjectile({
       resizeObserver.disconnect();
       canvas.removeEventListener("webglcontextlost", handleContextLost);
       canvas.removeEventListener("webglcontextrestored", handleContextRestored);
-      if (flightAnimationFrameRef.current !== null) {
-        window.cancelAnimationFrame(flightAnimationFrameRef.current);
-        flightAnimationFrameRef.current = null;
+      if (animationFrameRef.current !== null) {
+        window.cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
       }
       if (runtime.model) {
         scene.remove(runtime.model);
@@ -294,9 +279,9 @@ export function FatboyProjectile({
       return;
     }
 
-    if (flightAnimationFrameRef.current !== null) {
-      window.cancelAnimationFrame(flightAnimationFrameRef.current);
-      flightAnimationFrameRef.current = null;
+    if (animationFrameRef.current !== null) {
+      window.cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
     }
 
     const { camera, height, model, renderer, scene, width } = runtime;
@@ -317,21 +302,44 @@ export function FatboyProjectile({
       model.visible = idle;
       if (idle) {
         model.position.copy(screenToWorld(launcherPoint, 70));
-        model.rotation.set(-0.18, 0.52, -0.08);
         model.scale.setScalar(startSize);
+        const idleStartYaw = model.rotation.y;
+        const idleStartedAt = performance.now();
+        const renderIdle = (now: number) => {
+          const rotation = calculateIdleRotation(
+            now - idleStartedAt,
+            idleStartYaw,
+          );
+          model.rotation.set(rotation.x, rotation.y, rotation.z);
+          renderer.render(scene, camera);
+          animationFrameRef.current = window.requestAnimationFrame(renderIdle);
+        };
+
+        const rotation = calculateIdleRotation(0, idleStartYaw);
+        model.rotation.set(rotation.x, rotation.y, rotation.z);
+        if (!reducedMotion) {
+          animationFrameRef.current = window.requestAnimationFrame(renderIdle);
+        }
       }
       renderer.render(scene, camera);
-      return;
+      return () => {
+        if (animationFrameRef.current !== null) {
+          window.cancelAnimationFrame(animationFrameRef.current);
+          animationFrameRef.current = null;
+        }
+      };
     }
 
     const start = screenToWorld(launcherPoint, 90);
     const end = screenToWorld({ x: targetX, y: targetY }, 0);
+    const controlPoint = createThrowControlPoint(start, end, height);
     const control = new THREE.Vector3(
-      (start.x + end.x) / 2,
-      Math.max(start.y, end.y) + Math.min(height * 0.17, 132),
-      34,
+      controlPoint.x,
+      controlPoint.y,
+      controlPoint.z,
     );
     const endSize = Math.min(58, Math.max(46, startSize * 0.3));
+    const startRotation = model.rotation.clone();
 
     model.visible = true;
     if (reducedMotion) {
@@ -349,11 +357,13 @@ export function FatboyProjectile({
       const elapsed = now - startedAt;
       const linearProgress = Math.min(1, elapsed / travelDuration);
       const progress = linearProgress * linearProgress * (3 - 2 * linearProgress);
-      model.position.copy(quadraticPoint(start, control, end, progress));
+      const position = quadraticThrowPoint(start, control, end, progress);
+      model.position.set(position.x, position.y, position.z);
       model.rotation.set(
-        -0.18 + progress * (0.26 + spin.xTurns * Math.PI * 2),
-        0.52 + progress * (Math.PI * 0.82 + spin.yTurns * Math.PI * 2),
-        -0.08 + progress * (0.2 + spin.zTurns * Math.PI * 2),
+        startRotation.x + progress * (0.26 + spin.xTurns * Math.PI * 2),
+        startRotation.y +
+          progress * (Math.PI * 0.82 + spin.yTurns * Math.PI * 2),
+        startRotation.z + progress * (0.2 + spin.zTurns * Math.PI * 2),
       );
       const scale = THREE.MathUtils.lerp(
         startSize,
@@ -364,17 +374,17 @@ export function FatboyProjectile({
       renderer.render(scene, camera);
 
       if (elapsed < duration) {
-        flightAnimationFrameRef.current = window.requestAnimationFrame(animate);
+        animationFrameRef.current = window.requestAnimationFrame(animate);
       } else {
-        flightAnimationFrameRef.current = null;
+        animationFrameRef.current = null;
       }
     };
 
-    flightAnimationFrameRef.current = window.requestAnimationFrame(animate);
+    animationFrameRef.current = window.requestAnimationFrame(animate);
     return () => {
-      if (flightAnimationFrameRef.current !== null) {
-        window.cancelAnimationFrame(flightAnimationFrameRef.current);
-        flightAnimationFrameRef.current = null;
+      if (animationFrameRef.current !== null) {
+        window.cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
       }
     };
   }, [
@@ -396,16 +406,14 @@ export function FatboyProjectile({
         top: target.y,
         "--flight-duration": `${Math.max(320, flightDurationMs)}ms`,
         "--flight-spin-end": `${8 + spin.zTurns * 360}deg`,
+        "--flight-spin-mid": `${spin.zTurns * 216}deg`,
         "--flight-target-x": `${target.x}px`,
         "--flight-target-y": `${target.y}px`,
       }
     : undefined;
 
   return (
-    <div
-      className={`fatboy-projectile-layer${idle && !target ? " fatboy-projectile-layer-idle" : ""}`}
-      aria-hidden="true"
-    >
+    <div className="fatboy-projectile-layer" aria-hidden="true">
       <canvas className="fatboy-projectile-canvas" ref={canvasRef} />
       {target && loadStatus !== "ready" ? (
         <span
