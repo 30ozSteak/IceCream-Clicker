@@ -21,9 +21,8 @@ import {
   calculateCoverGeometry,
   type CoverGeometry,
   normalizedImagePointToStage,
-  stagePointToNormalizedImage,
 } from "../lib/client/portrait-geometry";
-import { getFeedReaction, getMissReaction } from "../lib/feed-reactions";
+import { getFeedReaction } from "../lib/feed-reactions";
 import {
   getClearedPackHistory,
   getDisplayedClearedPackCount,
@@ -156,9 +155,9 @@ type ActiveReloadStyle = CSSProperties & {
   "--pack-accent-soft": string;
 };
 
-type MissFeedbackStyle = CSSProperties & {
-  "--miss-x": string;
-  "--miss-y": string;
+type SandwichFlightStyle = CSSProperties & {
+  "--flight-target-x": string;
+  "--flight-target-y": string;
 };
 
 type ApiLeaderboardResponse = {
@@ -180,13 +179,6 @@ type Notice = {
   tone: "info" | "success" | "error";
 };
 
-type MissFeedback = {
-  id: number;
-  message: string;
-  x: number;
-  y: number;
-};
-
 type FeedReaction = {
   id: number;
   message: string;
@@ -196,6 +188,8 @@ type FeedReaction = {
 
 const numberFormatter = new Intl.NumberFormat("en-US");
 const nicknamePattern = /^[\p{L}\p{N}]+(?: [\p{L}\p{N}]+)*$/u;
+const FATBOY_THROW_DURATION_MS = 560;
+const FATBOY_REDUCED_MOTION_DURATION_MS = 420;
 
 class ApiError extends Error {
   status: number;
@@ -541,13 +535,32 @@ function NicknameDialog({
         aria-labelledby="nickname-title"
         aria-describedby="nickname-description"
       >
-        <h2 id="nickname-title">Choose a name.</h2>
+        <p className="plain-dialog-kicker">One-thumb feed frenzy</p>
+        <h2 id="nickname-title">Feed the crowd.</h2>
         <p id="nickname-description">
-          Progress stays on this browser. We’ll add a four-character tag.
+          Tap the FatBoy at the bottom and it flies straight to the mouth.
+          Empty three boxes to unlock the 12-pack.
         </p>
 
+        <ol className="onboarding-loop" aria-label="How to play">
+          <li>
+            <strong>1</strong>
+            <span>Tap FatBoy</span>
+          </li>
+          <li>
+            <strong>2</strong>
+            <span>Feed faces</span>
+          </li>
+          <li>
+            <strong>3</strong>
+            <span>Clear boxes</span>
+          </li>
+        </ol>
+
         <form onSubmit={onSubmit} noValidate>
-          <label className="sr-only" htmlFor="nickname-input">Nickname</label>
+          <label className="plain-name-label" htmlFor="nickname-input">
+            Choose your feeder name
+          </label>
           <input
             className="plain-name-input"
             id="nickname-input"
@@ -588,7 +601,7 @@ function NicknameDialog({
               type="submit"
               disabled={saving || offline}
             >
-              {saving ? "saving…" : "start"}
+              {saving ? "saving…" : "let’s feed"}
             </button>
           </div>
         </form>
@@ -629,7 +642,6 @@ export function GameClient() {
     x: number;
     y: number;
   } | null>(null);
-  const [missFeedback, setMissFeedback] = useState<MissFeedback | null>(null);
   const [feedReaction, setFeedReaction] = useState<FeedReaction | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [announcement, setAnnouncement] = useState("");
@@ -641,6 +653,8 @@ export function GameClient() {
   const stageRef = useRef<HTMLDivElement>(null);
   const portraitImageRef = useRef<HTMLImageElement>(null);
   const hudTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const packButtonRef = useRef<HTMLButtonElement | null>(null);
+  const focusPackAfterFeedRef = useRef(false);
   const feedLockRef = useRef(false);
   const packLockRef = useRef(false);
   const reloadSessionRef = useRef<ReloadSession | null>(null);
@@ -652,7 +666,6 @@ export function GameClient() {
   const accessibleReloadPendingRef = useRef(false);
   const reloadFrameRef = useRef<number | null>(null);
   const reloadGenerationRef = useRef(0);
-  const missIdRef = useRef(0);
   const reactionIdRef = useRef(0);
   const noticeTimerRef = useRef<number | null>(null);
   const reducedMotion = useReducedMotion();
@@ -844,22 +857,6 @@ export function GameClient() {
   }, [cancelReloadWork]);
 
   useEffect(() => {
-    if (!missFeedback) {
-      return;
-    }
-
-    const missTimer = window.setTimeout(
-      () => {
-        setMissFeedback((current) =>
-          current?.id === missFeedback.id ? null : current,
-        );
-      },
-      reducedMotion ? 650 : 1_150,
-    );
-    return () => window.clearTimeout(missTimer);
-  }, [missFeedback, reducedMotion]);
-
-  useEffect(() => {
     if (!feedReaction) {
       return;
     }
@@ -944,117 +941,6 @@ export function GameClient() {
     [applyLeaderboard, resetReloadState],
   );
 
-  const handleMiss = async (event: ReactMouseEvent<HTMLElement>) => {
-    if (
-      event.target instanceof Element &&
-      event.target.closest(".cleared-boxes")
-    ) {
-      return;
-    }
-
-    if (
-      !game ||
-      !displayPortrait ||
-      !("mouth" in displayPortrait) ||
-      game.player.sandwichesRemaining === 0 ||
-      feedLockRef.current ||
-      isOpeningPack ||
-      offline
-    ) {
-      return;
-    }
-
-    const stageBounds = event.currentTarget.getBoundingClientRect();
-    if (stageBounds.width <= 0 || stageBounds.height <= 0) {
-      return;
-    }
-
-    const target = {
-      x: Math.min(stageBounds.width, Math.max(0, event.clientX - stageBounds.left)),
-      y: Math.min(stageBounds.height, Math.max(0, event.clientY - stageBounds.top)),
-    };
-    const clickPoint = geometry
-      ? stagePointToNormalizedImage(geometry, target.x, target.y)
-      : {
-          x: target.x / stageBounds.width,
-          y: target.y / stageBounds.height,
-        };
-
-    feedLockRef.current = true;
-    setIsFeeding(true);
-    setShotUsesThree(threeProjectileReady);
-
-    const snapshot = game;
-    const previousStreak = streak;
-    const clickedPortrait = displayPortrait;
-
-    setMissFeedback(null);
-    setFeedReaction(null);
-    setSandwichTarget(target);
-    setGame({
-      ...snapshot,
-      player: {
-        ...snapshot.player,
-        sandwichesRemaining: Math.max(
-          0,
-          snapshot.player.sandwichesRemaining - 1,
-        ),
-      },
-    });
-    setStreak(0);
-    setAnnouncement("FatBoy tossed toward the portrait.");
-
-    const missRequest = requestJson<ApiFeedResponse>("/api/feed", {
-      method: "POST",
-      body: JSON.stringify({
-        roundToken: snapshot.round.token,
-        portraitId: clickedPortrait.id,
-        x: clickPoint.x,
-        y: clickPoint.y,
-      }),
-    }).then(
-      (data) => {
-        try {
-          return { ok: true as const, data: normalizeFeedResponse(data) };
-        } catch (error) {
-          return { ok: false as const, error };
-        }
-      },
-      (error: unknown) => ({ ok: false as const, error }),
-    );
-
-    await delay(reducedMotion ? 40 : 280);
-    setSandwichTarget(null);
-    missIdRef.current += 1;
-    const missId = missIdRef.current;
-    const missMessage = getMissReaction(missId);
-    setMissFeedback({
-      id: missId,
-      message: missMessage,
-      ...target,
-    });
-
-    const result = await missRequest;
-    if (result.ok && result.data.outcome === "miss") {
-      setGame(result.data.game);
-      setDisplayPortrait(result.data.game.round.current);
-      setAnnouncement(`${missMessage} Sandwich spent; no point scored.`);
-    } else {
-      const error = result.ok
-        ? new Error("The server returned the wrong throw outcome.")
-        : result.error;
-      setMissFeedback(null);
-      setGame(snapshot);
-      setDisplayPortrait(snapshot.round.current);
-      setStreak(previousStreak);
-      showNotice(getFriendlyError(error), "error");
-      await resyncAfterFeedError(snapshot);
-    }
-
-    setIsFeeding(false);
-    feedLockRef.current = false;
-  };
-
   const handleFeed = async (event: ReactMouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
@@ -1078,6 +964,9 @@ export function GameClient() {
     const previousGlobalTotal = globalTotal;
     const previousStreak = streak;
     const clickedPortrait = displayPortrait;
+    focusPackAfterFeedRef.current =
+      snapshot.player.sandwichesRemaining === 1 &&
+      document.activeElement === event.currentTarget;
     // The rendered control is intentionally at least 44×44px for touch and
     // keyboard access, which can be larger than a face landmark on small
     // screens. Treat the whole control as the mouth target and submit its
@@ -1099,7 +988,6 @@ export function GameClient() {
           y: stageHeight * clickedPortrait.mouth.cy,
         };
 
-    setMissFeedback(null);
     setFeedReaction(null);
     setSandwichTarget(target);
     setGame({
@@ -1142,7 +1030,11 @@ export function GameClient() {
       (error: unknown) => ({ ok: false as const, error }),
     );
 
-    await delay(reducedMotion ? 40 : 280);
+    await delay(
+      reducedMotion
+        ? FATBOY_REDUCED_MOTION_DURATION_MS
+        : FATBOY_THROW_DURATION_MS,
+    );
     reactionIdRef.current += 1;
     const reactionId = reactionIdRef.current;
     setFeedReaction({
@@ -1158,6 +1050,7 @@ export function GameClient() {
       setGame(result.data);
       setDisplayPortrait(result.data.round.current);
     } else {
+      focusPackAfterFeedRef.current = false;
       setFeedReaction((current) =>
         current?.id === reactionId ? null : current,
       );
@@ -2166,6 +2059,44 @@ export function GameClient() {
         : reloadInteractionPrompt
           ? `${reloadInteractionPrompt}, ${Math.round(reloadProgress)} percent.`
           : `${reloadPack?.reload.label ?? "Reload"}, ${Math.round(reloadProgress)} percent.`;
+  const packQuantity = player?.currentPack.quantity ?? 0;
+  const packProgress = player
+    ? Math.max(
+        0,
+        Math.min(packQuantity, packQuantity - player.sandwichesRemaining),
+      )
+    : 0;
+  const showFeedTutorial = Boolean(
+    player && player.packsCleared === 0 && player.sandwichesFed < 2,
+  );
+  const showMouthCue = showFeedTutorial && !isFeeding && !feedReaction;
+  const canLaunch = Boolean(
+    player &&
+      portrait &&
+      "mouth" in portrait &&
+      !bootstrapError &&
+      !packEmpty,
+  );
+  const showLauncher = Boolean(
+    player && !bootstrapError && (!packEmpty || isFeeding),
+  );
+  const launcherGoal = boxesUntilUnlock > 0
+    ? `${boxesUntilUnlock} box${boxesUntilUnlock === 1 ? "" : "es"} to the 12-pack`
+    : player
+      ? `Next box · ${player.nextPack.shortName}`
+      : "Clear boxes · unlock flavors";
+
+  useEffect(() => {
+    if (!focusPackAfterFeedRef.current || !packEmpty || isFeeding) {
+      return;
+    }
+
+    const focusFrame = window.requestAnimationFrame(() => {
+      packButtonRef.current?.focus();
+      focusPackAfterFeedRef.current = false;
+    });
+    return () => window.cancelAnimationFrame(focusFrame);
+  }, [isFeeding, packEmpty]);
 
   return (
     <div className="game-shell">
@@ -2178,7 +2109,6 @@ export function GameClient() {
           className={`portrait-stage${isFeeding ? " portrait-stage-feeding" : ""}${packEmpty ? " portrait-stage-pack-empty" : ""}`}
           id="game"
           ref={stageRef}
-          onClick={(event) => void handleMiss(event)}
           inert={hudPanelOpen ? true : undefined}
           aria-hidden={hudPanelOpen ? true : undefined}
           aria-busy={loading || isFeeding || isOpeningPack}
@@ -2222,50 +2152,48 @@ export function GameClient() {
 
           {portrait && "mouth" in portrait && !bootstrapError && !packEmpty ? (
             <button
-              className="mouth-target"
+              className={`mouth-target${showMouthCue ? " mouth-target-tutorial" : ""}`}
               style={mouthButtonStyle}
               type="button"
               onClick={handleFeed}
               disabled={isFeeding || offline}
-              aria-label="Throw a 3D FatBoy ice cream sandwich to this person"
-              aria-describedby="mouth-instructions"
+              tabIndex={-1}
+              aria-hidden="true"
             >
-              <span className="sr-only">Feed sandwich</span>
+              {showMouthCue ? (
+                <span className="mouth-target-label" aria-hidden="true">
+                  feed here
+                </span>
+              ) : null}
             </button>
           ) : null}
 
           <FatboyProjectile
+            idle={showLauncher && !sandwichTarget}
             target={shotUsesThree ? sandwichTarget : null}
+            flightDurationMs={
+              reducedMotion
+                ? FATBOY_REDUCED_MOTION_DURATION_MS
+                : FATBOY_THROW_DURATION_MS
+            }
             onReadyChange={setThreeProjectileReady}
             reducedMotion={reducedMotion}
           />
           {sandwichTarget && !shotUsesThree ? (
-            <img
-              className="sandwich-flight"
-              src="/brand/vanilla-sandwich.webp"
-              alt=""
-              width="700"
-              height="420"
-              style={{ left: sandwichTarget.x, top: sandwichTarget.y }}
-              aria-hidden="true"
-            />
-          ) : null}
-
-          {missFeedback ? (
-            <div
-              className={`miss-feedback${missFeedback.id % 2 === 0 ? " miss-feedback-tilt-right" : ""}`}
-              key={missFeedback.id}
+            <span
+              className="sandwich-flight fatboy-sandwich-illustration"
               style={
                 {
-                  "--miss-x": `${missFeedback.x}px`,
-                  "--miss-y": `${missFeedback.y}px`,
-                } as MissFeedbackStyle
+                  left: sandwichTarget.x,
+                  top: sandwichTarget.y,
+                  "--flight-target-x": `${sandwichTarget.x}px`,
+                  "--flight-target-y": `${sandwichTarget.y}px`,
+                } as SandwichFlightStyle
               }
               aria-hidden="true"
             >
-              <span className="miss-feedback-mark">×</span>
-              <strong>{missFeedback.message}</strong>
-            </div>
+              <i />
+            </span>
           ) : null}
 
           {feedReaction ? (
@@ -2282,10 +2210,63 @@ export function GameClient() {
             </strong>
           ) : null}
 
+          {showLauncher && player ? (
+            <button
+              className={`fatboy-launcher${isFeeding ? " fatboy-launcher-feeding" : ""}${showFeedTutorial ? " fatboy-launcher-tutorial" : ""}${isFeeding || offline || !canLaunch ? " fatboy-launcher-disabled" : ""}`}
+              type="button"
+              onClick={handleFeed}
+              aria-disabled={isFeeding || offline || !canLaunch}
+              aria-label={
+                isFeeding && !sandwichTarget
+                  ? packEmpty
+                    ? "Box cleared. Getting the next box ready."
+                    : `Getting the next FatBoy. ${player.sandwichesRemaining} left in this box.`
+                  : `Throw FatBoy. ${player.sandwichesRemaining} ${player.sandwichesRemaining === 1 ? "sandwich" : "sandwiches"} left in this box.`
+              }
+              aria-describedby="mouth-instructions"
+            >
+              <span className="fatboy-launcher-prompt" aria-hidden="true">
+                <strong>
+                  {isFeeding
+                    ? sandwichTarget
+                      ? "Tossing…"
+                      : packEmpty
+                        ? "Box cleared!"
+                        : "Getting next…"
+                    : "Tap the FatBoy"}
+                </strong>
+                <span>{launcherGoal}</span>
+              </span>
+              {!threeProjectileReady ? (
+                <span
+                  className="fatboy-sandwich-illustration fatboy-launcher-placeholder"
+                  aria-hidden="true"
+                >
+                  <i />
+                </span>
+              ) : null}
+              <span className="fatboy-launcher-count" aria-hidden="true">
+                <strong>{player.sandwichesRemaining}</strong>
+                <span>left</span>
+              </span>
+              <span className="fatboy-launcher-pips" aria-hidden="true">
+                {Array.from({ length: packQuantity }, (_, index) => (
+                  <i
+                    className={
+                      index < player.sandwichesRemaining
+                        ? "fatboy-launcher-pip-ready"
+                        : undefined
+                    }
+                    key={index}
+                  />
+                ))}
+              </span>
+            </button>
+          ) : null}
+
           {packEmpty &&
           reloadPack &&
           !isFeeding &&
-          !missFeedback &&
           !bootstrapError ? (
             <section
               className={`pack-reload pack-reload-${reloadMechanic ?? "precision"}${isCompletingReload ? " pack-reload-opening" : ""}${twelvePackUnlocked ? " pack-reload-unlocked" : ""}`}
@@ -2294,6 +2275,14 @@ export function GameClient() {
               onClick={(event) => event.stopPropagation()}
               style={reloadThemeStyle}
             >
+              <div className="pack-mobile-summary" aria-hidden="true">
+                <strong>Box cleared!</strong>
+                <span>
+                  {boxesUntilUnlock > 0
+                    ? `${boxesUntilUnlock} more to the 12-pack`
+                    : `${reloadPack.shortName} unlocked`}
+                </span>
+              </div>
               <div className="pack-reload-copy">
                 <p>{reloadEyebrow}</p>
                 <h2 id="pack-reload-title">{reloadPack.name}</h2>
@@ -2309,6 +2298,7 @@ export function GameClient() {
               </div>
               <div className="pack-reload-control">
                 <button
+                  ref={packButtonRef}
                   className={`pack-box-button${reloadGestureKind ? " pack-box-button-interacting" : ""}`}
                   type="button"
                   onClick={handleOpenPack}
@@ -2450,8 +2440,31 @@ export function GameClient() {
                   : reloadSession
                     ? reloadInteractionPrompt ?? "watch the timer"
                     : `${reloadPack?.quantity ?? 0} treats · tap the box`
-                : `${player?.sandwichesRemaining ?? 0} left · tap the mouth`}
+                : showFeedTutorial
+                  ? "feed them a FatBoy · tap below"
+                  : `${player?.sandwichesRemaining ?? 0} left · tap the FatBoy`}
             </p>
+          </div>
+          <div
+            className={`play-status${isFeeding ? " play-status-scoring" : ""}`}
+            aria-label={
+              player
+                ? `${player.sandwichesFed} people fed. ${packProgress} of ${packQuantity} sandwiches used in this box.`
+                : "Game status loading"
+            }
+          >
+            <span>
+              <small>fed</small>
+              <strong>
+                {player ? numberFormatter.format(player.sandwichesFed) : "—"}
+              </strong>
+            </span>
+            <span>
+              <small>box</small>
+              <strong>
+                {player ? `${packProgress}/${packQuantity}` : "—"}
+              </strong>
+            </span>
           </div>
         </header>
 
@@ -2482,7 +2495,7 @@ export function GameClient() {
               aria-controls="game-info-panel"
               aria-label={`View game stats. Your score is ${player?.sandwichesFed ?? 0}.`}
             >
-              <span>you</span>
+              <span>stats</span>
               <strong>
                 {player ? numberFormatter.format(player.sandwichesFed) : "—"}
               </strong>
@@ -2591,8 +2604,12 @@ export function GameClient() {
                 </dl>
 
                 <div className="challenge-card">
-                  <span>Daily challenge</span>
-                  <strong>Feed 50 people</strong>
+                  <span>Next goal</span>
+                  <strong>
+                    {boxesUntilUnlock > 0
+                      ? `Clear ${boxesUntilUnlock} more ${boxesUntilUnlock === 1 ? "box" : "boxes"} for the 12-pack`
+                      : `Next up: ${player?.nextPack.shortName ?? "a new flavor"}`}
+                  </strong>
                 </div>
 
                 <dl className="game-details">

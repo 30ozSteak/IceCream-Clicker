@@ -66,8 +66,8 @@ legacy SQLite migration tests and must not be applied to Postgres.
 - `GET /api/game` creates or restores the anonymous browser session.
 - `PATCH /api/player` validates and saves the nickname.
 - `POST /api/feed` validates a signed one-use round and mouth click.
-- `POST /api/pack` starts or completes a timed reload; perfect timing adds a
-  seventh treat to the next pack.
+- `POST /api/pack` starts or completes a timed reload; perfect timing opens the
+  next box early, while missed timing safely auto-finishes.
 - `GET /api/leaderboard` returns the cached leaders and visible global total.
 - `DELETE /api/player` deletes progress and expires the session cookie.
 

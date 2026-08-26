@@ -129,15 +129,113 @@ button:disabled {
   outline-offset: 5px;
 }
 
-.sandwich-flight {
+.mouth-target-tutorial {
+  border: 2px solid rgb(255 244 189 / 92%);
+  background: rgb(255 217 94 / 10%);
+  box-shadow:
+    0 0 0 7px rgb(255 244 189 / 12%),
+    0 0 28px rgb(255 217 94 / 64%);
+  animation: mouth-target-pulse 1.35s ease-in-out infinite;
+}
+
+.mouth-target-label {
   position: absolute;
-  width: clamp(145px, 22vw, 290px);
+  bottom: calc(100% + 10px);
+  left: 50%;
+  padding: 5px 8px;
+  border: 1px solid rgb(255 255 255 / 28%);
+  border-radius: 999px;
+  background: rgb(6 8 13 / 78%);
+  color: #fff4bd;
+  font-size: 0.62rem;
+  font-weight: 850;
+  letter-spacing: 0.11em;
+  line-height: 1;
+  text-shadow: 0 2px 8px rgb(0 0 0 / 90%);
+  text-transform: uppercase;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+@keyframes mouth-target-pulse {
+  50% {
+    border-color: #ffffff;
+    box-shadow:
+      0 0 0 13px rgb(255 244 189 / 4%),
+      0 0 36px rgb(255 217 94 / 82%);
+    transform: translate(-50%, -50%) scale(1.08);
+  }
+}
+
+.sandwich-flight {
+  --flight-launch-x: 50vw;
+  --flight-launch-y: max(72dvh, calc(100dvh - 154px));
+
+  position: absolute;
+  z-index: 12;
+  width: clamp(168px, 22vw, 250px);
   height: auto;
   object-fit: contain;
   filter: drop-shadow(0 16px 18px rgb(0 0 0 / 42%));
   pointer-events: none;
-  animation: sandwich-feed 280ms cubic-bezier(0.18, 0.76, 0.28, 1) both;
+  animation: sandwich-feed 560ms cubic-bezier(0.35, 0.05, 0.2, 1) both;
   transform-origin: center;
+}
+
+.fatboy-sandwich-illustration {
+  position: absolute;
+  display: block;
+  width: 168px;
+  aspect-ratio: 1.48;
+  border: 1px solid rgb(103 61 27 / 74%);
+  border-radius: 16px;
+  background:
+    linear-gradient(#fffdf1, #f2e3bb 52%, #fff8dc);
+  box-shadow:
+    inset 0 0 0 5px rgb(255 255 255 / 42%),
+    0 16px 24px rgb(0 0 0 / 38%);
+  transform: rotate(-7deg);
+}
+
+.fatboy-sandwich-illustration::before,
+.fatboy-sandwich-illustration::after {
+  position: absolute;
+  right: -4px;
+  left: -4px;
+  height: 30%;
+  border: 1px solid #4a240f;
+  border-radius: 14px;
+  background:
+    radial-gradient(circle at 16% 46%, #3d1d0e 0 2px, transparent 2.5px),
+    radial-gradient(circle at 38% 62%, #4c2511 0 2px, transparent 2.5px),
+    radial-gradient(circle at 61% 34%, #3f1e0d 0 2px, transparent 2.5px),
+    radial-gradient(circle at 82% 58%, #4b2410 0 2px, transparent 2.5px),
+    linear-gradient(145deg, #a75a2b, #6f3217);
+  box-shadow:
+    inset 0 2px 2px rgb(255 190 112 / 22%),
+    0 3px 4px rgb(0 0 0 / 26%);
+  content: "";
+}
+
+.fatboy-sandwich-illustration::before {
+  top: -5px;
+  transform: perspective(240px) rotateX(10deg);
+}
+
+.fatboy-sandwich-illustration::after {
+  bottom: -5px;
+  transform: perspective(240px) rotateX(-10deg);
+}
+
+.fatboy-sandwich-illustration > i {
+  position: absolute;
+  z-index: 2;
+  top: 31%;
+  right: 8%;
+  bottom: 31%;
+  left: 8%;
+  border-radius: 12px;
+  background: linear-gradient(100deg, #fffef4, #ead9ad);
 }
 
 .fatboy-projectile-layer {
@@ -148,6 +246,16 @@ button:disabled {
   pointer-events: none;
 }
 
+.fatboy-projectile-layer-idle {
+  animation: fatboy-idle-float 1.8s ease-in-out infinite;
+}
+
+@keyframes fatboy-idle-float {
+  50% {
+    transform: translateY(-6px);
+  }
+}
+
 .fatboy-projectile-canvas {
   display: block;
   width: 100%;
@@ -156,6 +264,180 @@ button:disabled {
 
 .sandwich-flight-fallback {
   z-index: 1;
+}
+
+.fatboy-launcher {
+  position: absolute;
+  z-index: 13;
+  bottom: max(72px, calc(env(safe-area-inset-bottom) + 62px));
+  left: 50%;
+  width: 220px;
+  height: 178px;
+  padding: 0;
+  border: 0;
+  appearance: none;
+  background: transparent;
+  color: #ffffff;
+  cursor: pointer;
+  filter: drop-shadow(0 16px 20px rgb(0 0 0 / 28%));
+  transform: translateX(-50%);
+  user-select: none;
+}
+
+.fatboy-launcher::before {
+  position: absolute;
+  z-index: -1;
+  top: 47%;
+  left: 50%;
+  width: 176px;
+  aspect-ratio: 1;
+  border: 1px solid rgb(255 244 189 / 18%);
+  border-radius: 50%;
+  background: radial-gradient(circle, rgb(255 217 94 / 19%), transparent 68%);
+  content: "";
+  transform: translate(-50%, -50%);
+}
+
+.fatboy-launcher:disabled {
+  opacity: 1;
+}
+
+.fatboy-launcher-disabled {
+  cursor: wait;
+}
+
+.fatboy-launcher:focus-visible {
+  border-radius: 32px;
+  outline: 3px solid #fff4bd;
+  outline-offset: 4px;
+}
+
+.fatboy-launcher:not(.fatboy-launcher-disabled):active {
+  transform: translateX(-50%) scale(0.96);
+}
+
+.fatboy-launcher-tutorial::before {
+  animation: launcher-halo-pulse 1.35s ease-in-out infinite;
+}
+
+@keyframes launcher-halo-pulse {
+  50% {
+    border-color: rgb(255 244 189 / 58%);
+    background: radial-gradient(circle, rgb(255 217 94 / 34%), transparent 69%);
+    transform: translate(-50%, -50%) scale(1.08);
+  }
+}
+
+.fatboy-launcher-prompt {
+  position: absolute;
+  z-index: 3;
+  top: 0;
+  left: 50%;
+  display: grid;
+  width: max-content;
+  max-width: 220px;
+  justify-items: center;
+  text-shadow: 0 2px 10px rgb(0 0 0 / 100%);
+  transform: translateX(-50%);
+}
+
+.fatboy-launcher-prompt strong {
+  padding: 7px 12px;
+  border: 1px solid rgb(255 255 255 / 34%);
+  border-radius: 999px;
+  background: rgb(7 9 15 / 82%);
+  box-shadow: 0 8px 18px rgb(0 0 0 / 32%);
+  color: #fff4bd;
+  font-size: 0.78rem;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  text-transform: uppercase;
+  backdrop-filter: blur(10px);
+}
+
+.fatboy-launcher-prompt span {
+  margin-top: 5px;
+  color: rgb(255 255 255 / 82%);
+  font-size: 0.72rem;
+  font-weight: 750;
+  letter-spacing: 0.075em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.fatboy-launcher-placeholder {
+  z-index: 1;
+  top: 54%;
+  left: 50%;
+  width: 158px;
+  transform: translate(-50%, -50%) rotate(-7deg);
+}
+
+.fatboy-launcher-count {
+  position: absolute;
+  z-index: 4;
+  top: 55%;
+  right: 8px;
+  display: grid;
+  width: 42px;
+  aspect-ratio: 1;
+  place-content: center;
+  border: 2px solid #ffffff;
+  border-radius: 50%;
+  background: #e92f38;
+  box-shadow: 0 7px 18px rgb(0 0 0 / 38%);
+  color: #ffffff;
+  line-height: 0.82;
+  text-align: center;
+  text-shadow: 0 1px 4px rgb(0 0 0 / 34%);
+  transform: translateY(-50%) rotate(5deg);
+}
+
+.fatboy-launcher-count strong {
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 1rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.fatboy-launcher-count span {
+  margin-top: 2px;
+  font-size: 0.4rem;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.fatboy-launcher-pips {
+  position: absolute;
+  z-index: 3;
+  bottom: 0;
+  left: 50%;
+  display: flex;
+  max-width: 184px;
+  justify-content: center;
+  gap: 5px;
+  transform: translateX(-50%);
+}
+
+.fatboy-launcher-pips i {
+  width: 11px;
+  height: 5px;
+  border: 1px solid rgb(255 255 255 / 42%);
+  border-radius: 999px;
+  background: rgb(6 7 10 / 62%);
+  box-shadow: 0 2px 6px rgb(0 0 0 / 68%);
+}
+
+.fatboy-launcher-pips .fatboy-launcher-pip-ready {
+  border-color: #fff4bd;
+  background: #ffd95e;
+  box-shadow: 0 0 8px rgb(255 217 94 / 72%);
+}
+
+.fatboy-launcher-feeding .fatboy-launcher-count,
+.fatboy-launcher-feeding .fatboy-launcher-placeholder {
+  opacity: 0;
 }
 
 .miss-feedback {
@@ -450,6 +732,10 @@ button:disabled {
   grid-template-columns: minmax(15rem, 0.65fr) minmax(20rem, 1.35fr);
   cursor: default;
   backdrop-filter: blur(5px);
+}
+
+.pack-mobile-summary {
+  display: none;
 }
 
 .pack-reload-copy {
@@ -935,16 +1221,21 @@ button:disabled {
 
 @keyframes sandwich-feed {
   0% {
-    opacity: 0;
-    transform: translate(calc(-50% + 300px), calc(-50% + 190px)) rotate(-14deg) scale(1.2);
-  }
-  20%,
-  82% {
+    top: var(--flight-launch-y);
+    left: var(--flight-launch-x);
     opacity: 1;
+    transform: translate(-50%, -50%) rotate(-8deg) scale(1);
+  }
+  12% {
+    top: var(--flight-launch-y);
+    left: var(--flight-launch-x);
+    transform: translate(-50%, calc(-50% + 7px)) rotate(-10deg) scale(0.94);
   }
   100% {
-    opacity: 0;
-    transform: translate(-50%, -50%) rotate(2deg) scale(0.22);
+    top: var(--flight-target-y);
+    left: var(--flight-target-x);
+    opacity: 1;
+    transform: translate(-50%, -50%) rotate(8deg) scale(0.3);
   }
 }
 
@@ -990,7 +1281,10 @@ button:disabled {
   top: 0;
   right: 0;
   left: 0;
-  display: block;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
   padding:
     max(clamp(20px, 3.2vw, 48px), env(safe-area-inset-top))
     max(clamp(20px, 3.2vw, 48px), env(safe-area-inset-right))
@@ -1027,6 +1321,58 @@ button:disabled {
   font-size: clamp(0.76rem, 1.2vw, 0.95rem);
   letter-spacing: 0.04em;
   text-transform: lowercase;
+}
+
+.play-status {
+  display: flex;
+  align-items: stretch;
+  gap: 7px;
+  pointer-events: none;
+}
+
+.play-status > span {
+  display: grid;
+  min-width: 72px;
+  min-height: 50px;
+  align-content: center;
+  justify-items: center;
+  padding: 7px 12px;
+  border: 1px solid rgb(255 255 255 / 20%);
+  border-radius: 18px;
+  background: rgb(7 8 12 / 66%);
+  box-shadow:
+    0 10px 28px rgb(0 0 0 / 28%),
+    inset 0 1px 0 rgb(255 255 255 / 8%);
+  backdrop-filter: blur(14px);
+}
+
+.play-status small {
+  color: rgb(255 255 255 / 65%);
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.13em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.play-status strong {
+  margin-top: 3px;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 1rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.play-status-scoring > span:first-child strong {
+  animation: score-bump 420ms cubic-bezier(0.2, 0.8, 0.25, 1);
+}
+
+@keyframes score-bump {
+  45% {
+    color: #fff4bd;
+    text-shadow: 0 0 14px rgb(255 217 94 / 90%);
+    transform: scale(1.28);
+  }
 }
 
 .daily-challenge {
@@ -1620,12 +1966,72 @@ button:disabled {
   line-height: 0.95;
 }
 
-.plain-dialog > p {
+.plain-dialog > p:not(.plain-dialog-kicker) {
   max-width: 34rem;
   margin: 18px 0 28px;
   color: rgb(255 255 255 / 82%);
   font-size: clamp(0.82rem, 1.4vw, 1rem);
   line-height: 1.55;
+}
+
+.plain-dialog-kicker {
+  margin: 0 0 12px;
+  color: #fff4bd;
+  font-size: 0.7rem;
+  font-weight: 850;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.onboarding-loop {
+  display: grid;
+  width: min(100%, 32rem);
+  gap: 8px;
+  margin: -10px 0 28px;
+  padding: 0;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  list-style: none;
+}
+
+.onboarding-loop li {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+  padding: 12px;
+  border: 1px solid rgb(255 255 255 / 18%);
+  border-radius: 14px;
+  background: rgb(7 9 14 / 46%);
+  backdrop-filter: blur(9px);
+}
+
+.onboarding-loop strong {
+  display: grid;
+  width: 22px;
+  aspect-ratio: 1;
+  place-items: center;
+  border-radius: 50%;
+  background: #e92f38;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 0.68rem;
+}
+
+.onboarding-loop span {
+  overflow: hidden;
+  color: rgb(255 255 255 / 86%);
+  font-size: 0.72rem;
+  font-weight: 720;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plain-name-label {
+  display: block;
+  margin-bottom: 4px;
+  color: rgb(255 255 255 / 72%);
+  font-size: 0.68rem;
+  font-weight: 780;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
 }
 
 .plain-name-input {
@@ -1758,7 +2164,7 @@ button:disabled {
   }
 
   .overlay-top {
-    display: block;
+    display: flex;
     padding:
       max(20px, env(safe-area-inset-top))
       max(18px, env(safe-area-inset-right))
@@ -1817,23 +2223,12 @@ button:disabled {
     margin-left: 0;
   }
 
-  .sandwich-flight {
-    width: clamp(120px, 36vw, 210px);
+  .onboarding-loop {
+    margin-bottom: 22px;
   }
 
-  @keyframes sandwich-feed {
-    0% {
-      opacity: 0;
-      transform: translate(calc(-50% + 150px), calc(-50% + 180px)) rotate(-14deg) scale(1.1);
-    }
-    20%,
-    82% {
-      opacity: 1;
-    }
-    100% {
-      opacity: 0;
-      transform: translate(-50%, -50%) rotate(2deg) scale(0.2);
-    }
+  .sandwich-flight {
+    width: clamp(160px, 42vw, 190px);
   }
 }
 
@@ -1858,7 +2253,7 @@ button:disabled {
 
   .game-instruction {
     width: max-content;
-    max-width: min(76vw, 19rem);
+    max-width: min(58vw, 16rem);
     margin-top: 8px;
     overflow: hidden;
     padding: 6px 10px 7px;
@@ -1866,12 +2261,32 @@ button:disabled {
     border-radius: 999px;
     background: rgb(5 6 9 / 54%);
     color: rgb(255 255 255 / 86%);
-    font-size: 0.66rem;
+    font-size: 0.72rem;
     font-weight: 620;
     letter-spacing: 0.025em;
     text-overflow: ellipsis;
     white-space: nowrap;
     backdrop-filter: blur(10px);
+  }
+
+  .play-status {
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .play-status > span {
+    min-width: 58px;
+    min-height: 40px;
+    padding: 5px 9px;
+    border-radius: 14px;
+  }
+
+  .play-status small {
+    font-size: 0.58rem;
+  }
+
+  .play-status strong {
+    font-size: 0.84rem;
   }
 
   .cleared-boxes {
@@ -1895,6 +2310,38 @@ button:disabled {
       linear-gradient(to bottom, rgb(0 0 0 / 82%), rgb(2 8 23 / 82%));
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr);
+  }
+
+  .pack-mobile-summary {
+    position: absolute;
+    z-index: 4;
+    top: max(94px, calc(env(safe-area-inset-top) + 78px));
+    left: 50%;
+    display: grid;
+    width: max-content;
+    max-width: calc(100% - 32px);
+    justify-items: center;
+    text-align: center;
+    text-shadow: 0 3px 16px rgb(0 0 0 / 92%);
+    transform: translateX(-50%);
+  }
+
+  .pack-mobile-summary strong {
+    color: var(--pack-accent);
+    font-size: clamp(1.45rem, 7vw, 2.25rem);
+    font-weight: 850;
+    letter-spacing: -0.045em;
+    line-height: 1;
+    text-transform: uppercase;
+  }
+
+  .pack-mobile-summary span {
+    margin-top: 7px;
+    color: rgb(255 255 255 / 84%);
+    font-size: 0.7rem;
+    font-weight: 780;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
   }
 
   .pack-reload-copy {
@@ -1953,7 +2400,7 @@ button:disabled {
       max(12px, env(safe-area-inset-bottom))
       max(12px, env(safe-area-inset-left));
     grid-template-columns: 1fr;
-    place-items: end center;
+    place-items: end;
   }
 
   .overlay-bottom-pack-empty {
@@ -1966,8 +2413,12 @@ button:disabled {
   }
 
   .hud-controls {
+    position: absolute;
+    right: max(8px, env(safe-area-inset-right));
+    bottom: max(8px, env(safe-area-inset-bottom));
+    flex-direction: column;
     gap: 7px;
-    padding: 5px;
+    padding: 4px;
     border: 1px solid rgb(255 255 255 / 11%);
     border-radius: 999px;
     background: rgb(4 5 8 / 50%);
@@ -1976,10 +2427,18 @@ button:disabled {
   }
 
   .hud-control {
-    min-width: 68px;
-    min-height: 48px;
-    padding-inline: 13px;
+    min-width: 56px;
+    min-height: 46px;
+    padding-inline: 9px;
     background: rgb(18 19 25 / 76%);
+  }
+
+  .hud-control strong {
+    font-size: 0.78rem;
+  }
+
+  .hud-control-ranks strong {
+    font-size: 0.58rem;
   }
 
   .hud-panel-backdrop {
@@ -2022,6 +2481,38 @@ button:disabled {
 }
 
 @media (max-height: 560px) and (orientation: landscape) {
+  .sandwich-flight {
+    --flight-launch-x: max(104px, 17vw);
+    --flight-launch-y: calc(100dvh - 88px);
+  }
+
+  .fatboy-launcher {
+    bottom: max(18px, calc(env(safe-area-inset-bottom) + 12px));
+    left: max(104px, 17vw);
+    width: 190px;
+    height: 140px;
+  }
+
+  .fatboy-launcher::before {
+    width: 144px;
+  }
+
+  .fatboy-launcher-prompt strong {
+    padding-block: 6px;
+    font-size: 0.7rem;
+  }
+
+  .fatboy-launcher-prompt span {
+    margin-top: 3px;
+    font-size: 0.62rem;
+  }
+
+  .fatboy-launcher-count {
+    top: 58%;
+    right: 5px;
+    width: 36px;
+  }
+
   .cleared-boxes {
     top: max(130px, calc(env(safe-area-inset-top) + 115px));
     bottom: max(42px, calc(env(safe-area-inset-bottom) + 30px));
@@ -2080,11 +2571,12 @@ button:disabled {
   .sandwich-flight {
     opacity: 1;
     animation: none !important;
-    transform: translate(-50%, -50%) rotate(0) scale(1);
+    transform: translate(-50%, -50%) rotate(0) scale(0.3);
   }
 
-  .sandwich-flight {
-    transform: translate(-50%, -50%) rotate(2deg) scale(0.22);
+  .fatboy-projectile-layer-idle {
+    animation: none !important;
+    transform: none;
   }
 
   .active-reload-indicator {

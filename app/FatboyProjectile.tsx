@@ -1,8 +1,5 @@
 "use client";
 
-/* The image below is only a graceful fallback for browsers without WebGL. */
-/* eslint-disable @next/next/no-img-element */
-
 import { type CSSProperties, useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
@@ -14,6 +11,8 @@ type Point = {
 };
 
 type FatboyProjectileProps = {
+  flightDurationMs?: number;
+  idle?: boolean;
   modelUrl?: string;
   onReadyChange?: (ready: boolean) => void;
   reducedMotion: boolean;
@@ -27,6 +26,11 @@ type Runtime = {
   renderer: THREE.WebGLRenderer;
   scene: THREE.Scene;
   width: number;
+};
+
+type SandwichFlightStyle = CSSProperties & {
+  "--flight-target-x": string;
+  "--flight-target-y": string;
 };
 
 type LoadStatus = "loading" | "ready" | "failed";
@@ -92,6 +96,8 @@ function quadraticPoint(
 }
 
 export function FatboyProjectile({
+  flightDurationMs = 560,
+  idle = false,
   modelUrl = FATBOY_MODELS.vanilla,
   onReadyChange,
   reducedMotion,
@@ -100,6 +106,7 @@ export function FatboyProjectile({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const runtimeRef = useRef<Runtime | null>(null);
   const flightAnimationFrameRef = useRef<number | null>(null);
+  const [viewportVersion, setViewportVersion] = useState(0);
   const [loadState, setLoadState] = useState<{
     modelUrl: string;
     status: LoadStatus;
@@ -177,6 +184,7 @@ export function FatboyProjectile({
       renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
       renderer.setSize(width, height, false);
       renderer.render(scene, camera);
+      setViewportVersion((version) => version + 1);
     };
 
     const resizeObserver = new ResizeObserver(resize);
@@ -284,66 +292,73 @@ export function FatboyProjectile({
     }
 
     const { camera, height, model, renderer, scene, width } = runtime;
+    const screenToWorld = (point: Point, z: number) =>
+      new THREE.Vector3(point.x - width / 2, height / 2 - point.y, z);
+    const compactLandscape = width > height && height <= 560;
+    const launcherPoint = {
+      x: compactLandscape ? Math.max(104, width * 0.17) : width / 2,
+      y: compactLandscape
+        ? height - 88
+        : Math.max(height * 0.72, height - 154),
+    };
+    const startSize = compactLandscape
+      ? Math.min(185, Math.max(140, Math.min(width, height) * 0.38))
+      : Math.min(225, Math.max(168, Math.min(width, height) * 0.42));
+
     if (targetX === undefined || targetY === undefined) {
-      model.visible = false;
+      model.visible = idle;
+      if (idle) {
+        model.position.copy(screenToWorld(launcherPoint, 70));
+        model.rotation.set(-0.18, 0.52, -0.08);
+        model.scale.setScalar(startSize);
+      }
       renderer.render(scene, camera);
       return;
     }
 
-    const screenToWorld = (point: Point, z: number) =>
-      new THREE.Vector3(point.x - width / 2, height / 2 - point.y, z);
-    const start = screenToWorld(
-      {
-        x: Math.max(width * 0.8, width - 170),
-        y: Math.max(height * 0.76, height - 190),
-      },
-      90,
-    );
+    const start = screenToWorld(launcherPoint, 90);
     const end = screenToWorld({ x: targetX, y: targetY }, 0);
     const control = new THREE.Vector3(
-      (start.x + end.x) / 2 - width * 0.045,
-      Math.max(start.y, end.y) + Math.min(height * 0.19, 145),
+      (start.x + end.x) / 2,
+      Math.max(start.y, end.y) + Math.min(height * 0.17, 132),
       34,
     );
-    const startSize = Math.min(
-      265,
-      Math.max(145, Math.min(width, height) * 0.3),
-    );
+    const endSize = Math.min(58, Math.max(46, startSize * 0.3));
 
     model.visible = true;
     if (reducedMotion) {
       model.position.copy(end);
       model.rotation.set(-0.18, 0.58, -0.08);
-      model.scale.setScalar(startSize * 0.16);
+      model.scale.setScalar(endSize);
       renderer.render(scene, camera);
       return;
     }
 
     const startedAt = performance.now();
-    const duration = 280;
+    const duration = Math.max(320, flightDurationMs);
+    const travelDuration = Math.max(240, duration - 90);
     const animate = (now: number) => {
-      const linearProgress = Math.min(1, (now - startedAt) / duration);
-      const progress = 1 - Math.pow(1 - linearProgress, 2.35);
+      const elapsed = now - startedAt;
+      const linearProgress = Math.min(1, elapsed / travelDuration);
+      const progress = linearProgress * linearProgress * (3 - 2 * linearProgress);
       model.position.copy(quadraticPoint(start, control, end, progress));
       model.rotation.set(
-        -0.22 + progress * 2.35,
-        0.58 + progress * 5.6,
-        -0.18 + progress * 3.2,
+        -0.18 + progress * 0.26,
+        0.52 + progress * Math.PI * 0.82,
+        -0.08 + progress * 0.2,
       );
       const scale = THREE.MathUtils.lerp(
         startSize,
-        startSize * 0.055,
-        Math.pow(progress, 1.18),
+        endSize,
+        Math.pow(progress, 1.08),
       );
       model.scale.setScalar(scale);
       renderer.render(scene, camera);
 
-      if (linearProgress < 1) {
+      if (elapsed < duration) {
         flightAnimationFrameRef.current = window.requestAnimationFrame(animate);
       } else {
         flightAnimationFrameRef.current = null;
-        model.visible = false;
-        renderer.render(scene, camera);
       }
     };
 
@@ -354,24 +369,38 @@ export function FatboyProjectile({
         flightAnimationFrameRef.current = null;
       }
     };
-  }, [loadStatus, reducedMotion, targetX, targetY]);
+  }, [
+    flightDurationMs,
+    idle,
+    loadStatus,
+    reducedMotion,
+    targetX,
+    targetY,
+    viewportVersion,
+  ]);
 
-  const fallbackStyle: CSSProperties | undefined = target
-    ? { left: target.x, top: target.y }
+  const fallbackStyle: SandwichFlightStyle | undefined = target
+    ? {
+        left: target.x,
+        top: target.y,
+        "--flight-target-x": `${target.x}px`,
+        "--flight-target-y": `${target.y}px`,
+      }
     : undefined;
 
   return (
-    <div className="fatboy-projectile-layer" aria-hidden="true">
+    <div
+      className={`fatboy-projectile-layer${idle && !target ? " fatboy-projectile-layer-idle" : ""}`}
+      aria-hidden="true"
+    >
       <canvas className="fatboy-projectile-canvas" ref={canvasRef} />
       {target && loadStatus !== "ready" ? (
-        <img
-          className="sandwich-flight sandwich-flight-fallback"
-          src="/brand/vanilla-sandwich.webp"
-          alt=""
-          width="700"
-          height="420"
+        <span
+          className="sandwich-flight sandwich-flight-fallback fatboy-sandwich-illustration"
           style={fallbackStyle}
-        />
+        >
+          <i />
+        </span>
       ) : null}
     </div>
   );
