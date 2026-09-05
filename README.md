@@ -1,8 +1,12 @@
-# FatBoy Clicker
+# Ice Cream Clicker
 
-A one-screen Three.js browser clicker game for FatBoy ice cream sandwiches.
-Players pick a nickname, toss a textured 3D FatBoy at the mouth of locally
-cached synthetic portraits, and compete on a public top-10 leaderboard.
+A one-screen browser clicker game about ice cream sandwiches. Players pick a
+nickname, toss a sandwich at the mouth of locally cached synthetic portraits,
+and compete on a public top-10 leaderboard.
+
+The projectile renders as a CSS illustration. A Three.js path is still wired up
+in `app/SandwichProjectile.tsx`; point `SANDWICH_MODELS.vanilla` at a GLB under
+`public/models` to turn it back on.
 
 ## Local development
 
@@ -34,7 +38,7 @@ three Vercel environments, and pulls the development values locally.
 
 ```bash
 npx vercel link
-npx vercel integration add neon --name fatboy-clicker-db --plan free_v3 --metadata region=iad1 --metadata auth=false --no-claim
+npx vercel integration add neon --name icecream-clicker-db --plan free_v3 --metadata region=iad1 --metadata auth=false --no-claim
 node -e "process.stdout.write(require('node:crypto').randomBytes(48).toString('base64url'))" | npx vercel env add ROUND_TOKEN_SECRET production,preview,development --yes
 npx vercel env pull .env.local --yes
 npm run db:migrate

@@ -142,7 +142,7 @@ function isEligible(asset) {
 async function downloadPortrait(asset) {
   const sourceUrl = `https://openpravatar.com/thumbs/${asset.id}.webp?w=800`;
   const response = await fetch(sourceUrl, {
-    headers: { "User-Agent": "FatBoy-Feed-Frenzy-asset-import/1.0" },
+    headers: { "User-Agent": "IceCream-Clicker-asset-import/1.0" },
   });
   if (!response.ok) {
     throw new Error(`${asset.id}: HTTP ${response.status}`);
@@ -266,7 +266,7 @@ async function main() {
   const catalogs = await Promise.all(
     CATALOG_URLS.map(async (catalogUrl) => {
       const response = await fetch(catalogUrl, {
-        headers: { "User-Agent": "FatBoy-Feed-Frenzy-asset-import/1.0" },
+        headers: { "User-Agent": "IceCream-Clicker-asset-import/1.0" },
       });
       if (!response.ok) {
         throw new Error(

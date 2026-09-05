@@ -185,7 +185,7 @@ button:disabled {
   transform-origin: center;
 }
 
-.fatboy-sandwich-illustration {
+.sandwich-illustration {
   position: absolute;
   display: block;
   width: 168px;
@@ -200,8 +200,8 @@ button:disabled {
   transform: rotate(-7deg);
 }
 
-.fatboy-sandwich-illustration::before,
-.fatboy-sandwich-illustration::after {
+.sandwich-illustration::before,
+.sandwich-illustration::after {
   position: absolute;
   right: -4px;
   left: -4px;
@@ -220,17 +220,17 @@ button:disabled {
   content: "";
 }
 
-.fatboy-sandwich-illustration::before {
+.sandwich-illustration::before {
   top: -5px;
   transform: perspective(240px) rotateX(10deg);
 }
 
-.fatboy-sandwich-illustration::after {
+.sandwich-illustration::after {
   bottom: -5px;
   transform: perspective(240px) rotateX(-10deg);
 }
 
-.fatboy-sandwich-illustration > i {
+.sandwich-illustration > i {
   position: absolute;
   z-index: 2;
   top: 31%;
@@ -241,7 +241,7 @@ button:disabled {
   background: linear-gradient(100deg, #fffef4, #ead9ad);
 }
 
-.fatboy-projectile-layer {
+.sandwich-projectile-layer {
   position: absolute;
   z-index: 12;
   inset: 0;
@@ -249,7 +249,7 @@ button:disabled {
   pointer-events: none;
 }
 
-.fatboy-projectile-canvas {
+.sandwich-projectile-canvas {
   display: block;
   width: 100%;
   height: 100%;
@@ -259,7 +259,7 @@ button:disabled {
   z-index: 1;
 }
 
-.fatboy-launcher {
+.sandwich-launcher {
   position: absolute;
   z-index: 13;
   bottom: max(72px, calc(env(safe-area-inset-bottom) + 62px));
@@ -277,7 +277,7 @@ button:disabled {
   user-select: none;
 }
 
-.fatboy-launcher::before {
+.sandwich-launcher::before {
   position: absolute;
   z-index: -1;
   top: 47%;
@@ -291,25 +291,25 @@ button:disabled {
   transform: translate(-50%, -50%);
 }
 
-.fatboy-launcher:disabled {
+.sandwich-launcher:disabled {
   opacity: 1;
 }
 
-.fatboy-launcher-disabled {
+.sandwich-launcher-disabled {
   cursor: wait;
 }
 
-.fatboy-launcher:focus-visible {
+.sandwich-launcher:focus-visible {
   border-radius: 32px;
   outline: 3px solid #fff4bd;
   outline-offset: 4px;
 }
 
-.fatboy-launcher:not(.fatboy-launcher-disabled):active {
+.sandwich-launcher:not(.sandwich-launcher-disabled):active {
   transform: translateX(-50%) scale(0.96);
 }
 
-.fatboy-launcher-tutorial::before {
+.sandwich-launcher-tutorial::before {
   animation: launcher-halo-pulse 1.35s ease-in-out infinite;
 }
 
@@ -321,7 +321,7 @@ button:disabled {
   }
 }
 
-.fatboy-launcher-prompt {
+.sandwich-launcher-prompt {
   position: absolute;
   z-index: 3;
   top: 0;
@@ -334,7 +334,7 @@ button:disabled {
   transform: translateX(-50%);
 }
 
-.fatboy-launcher-prompt strong {
+.sandwich-launcher-prompt strong {
   padding: 7px 12px;
   border: 1px solid rgb(255 255 255 / 34%);
   border-radius: 999px;
@@ -349,7 +349,7 @@ button:disabled {
   backdrop-filter: blur(10px);
 }
 
-.fatboy-launcher-prompt span {
+.sandwich-launcher-prompt span {
   margin-top: 5px;
   color: rgb(255 255 255 / 82%);
   font-size: 0.72rem;
@@ -359,7 +359,7 @@ button:disabled {
   white-space: nowrap;
 }
 
-.fatboy-launcher-placeholder {
+.sandwich-launcher-placeholder {
   z-index: 1;
   top: 54%;
   left: 50%;
@@ -367,7 +367,7 @@ button:disabled {
   transform: translate(-50%, -50%) rotate(-7deg);
 }
 
-.fatboy-launcher-count {
+.sandwich-launcher-count {
   position: absolute;
   z-index: 4;
   top: 55%;
@@ -387,13 +387,13 @@ button:disabled {
   transform: translateY(-50%) rotate(5deg);
 }
 
-.fatboy-launcher-count strong {
+.sandwich-launcher-count strong {
   font-family: var(--font-geist-mono), monospace;
   font-size: 1rem;
   font-variant-numeric: tabular-nums;
 }
 
-.fatboy-launcher-count span {
+.sandwich-launcher-count span {
   margin-top: 2px;
   font-size: 0.4rem;
   font-weight: 850;
@@ -401,7 +401,7 @@ button:disabled {
   text-transform: uppercase;
 }
 
-.fatboy-launcher-pips {
+.sandwich-launcher-pips {
   position: absolute;
   z-index: 3;
   bottom: 0;
@@ -413,7 +413,7 @@ button:disabled {
   transform: translateX(-50%);
 }
 
-.fatboy-launcher-pips i {
+.sandwich-launcher-pips i {
   width: 11px;
   height: 5px;
   border: 1px solid rgb(255 255 255 / 42%);
@@ -422,14 +422,14 @@ button:disabled {
   box-shadow: 0 2px 6px rgb(0 0 0 / 68%);
 }
 
-.fatboy-launcher-pips .fatboy-launcher-pip-ready {
+.sandwich-launcher-pips .sandwich-launcher-pip-ready {
   border-color: #fff4bd;
   background: #ffd95e;
   box-shadow: 0 0 8px rgb(255 217 94 / 72%);
 }
 
-.fatboy-launcher-feeding .fatboy-launcher-count,
-.fatboy-launcher-feeding .fatboy-launcher-placeholder {
+.sandwich-launcher-feeding .sandwich-launcher-count,
+.sandwich-launcher-feeding .sandwich-launcher-placeholder {
   opacity: 0;
 }
 
@@ -655,11 +655,10 @@ button:disabled {
   --cleared-box-shift: -1px;
 }
 
-.cleared-box img {
+.cleared-box .pack-box-art {
   display: block;
   width: 100%;
   height: 100%;
-  object-fit: contain;
   opacity: 0.88;
   filter: saturate(0.58) brightness(0.76) contrast(0.96);
   transform: translateX(var(--cleared-box-shift)) rotate(var(--cleared-box-angle));
@@ -797,6 +796,63 @@ button:disabled {
   justify-self: center;
 }
 
+.pack-box-art {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* Carton body. */
+.pack-box-art::before {
+  position: absolute;
+  inset: 17% 9% 11%;
+  border: 2px solid rgb(0 0 0 / 36%);
+  border-radius: 12px;
+  background: linear-gradient(
+    152deg,
+    var(--pack-accent-soft, #fff2ad),
+    var(--pack-accent, #f4d45e) 56%,
+    color-mix(in srgb, var(--pack-accent, #f4d45e) 58%, #2a1a05)
+  );
+  box-shadow:
+    inset 0 5px 0 rgb(255 255 255 / 36%),
+    inset 0 -14px 26px rgb(0 0 0 / 24%);
+  content: "";
+}
+
+/* Carton lid. */
+.pack-box-art::after {
+  position: absolute;
+  top: 8%;
+  right: 5%;
+  left: 5%;
+  height: 15%;
+  border: 2px solid rgb(0 0 0 / 36%);
+  border-radius: 9px;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--pack-accent-soft, #fff2ad) 82%, #ffffff),
+    var(--pack-accent, #f4d45e)
+  );
+  content: "";
+}
+
+/* Sandwich printed on the carton front. */
+.pack-box-art > i {
+  position: absolute;
+  z-index: 1;
+  top: 41%;
+  right: 24%;
+  left: 24%;
+  aspect-ratio: 1.5;
+  border-radius: 5px;
+  background: linear-gradient(#fffdf1, #f2e3bb 52%, #fff8dc);
+  box-shadow:
+    0 0 0 3px #4a240f,
+    0 6px 12px rgb(0 0 0 / 38%);
+}
+
 .pack-box-button {
   position: relative;
   display: block;
@@ -816,11 +872,10 @@ button:disabled {
   opacity: 1;
 }
 
-.pack-box-button img {
+.pack-box-button .pack-box-art {
   display: block;
   width: 100%;
   height: 100%;
-  object-fit: contain;
   transition: transform 180ms ease, filter 180ms ease;
   animation: pack-arrive 440ms cubic-bezier(0.17, 0.82, 0.25, 1.15) both;
   transform-origin: 50% 62%;
@@ -831,7 +886,7 @@ button:disabled {
   touch-action: none;
 }
 
-.pack-box-button-interacting img {
+.pack-box-button-interacting .pack-box-art {
   filter: brightness(1.08) drop-shadow(0 0 16px var(--pack-accent));
   transform: scale(1.025);
 }
@@ -1171,7 +1226,7 @@ button:disabled {
   }
 }
 
-.pack-box-button:hover:not(:disabled) img {
+.pack-box-button:hover:not(:disabled) .pack-box-art {
   filter: brightness(1.07);
   transform: rotate(0.8deg) scale(1.035);
 }
@@ -1182,7 +1237,7 @@ button:disabled {
   outline-offset: 4px;
 }
 
-.pack-reload-opening .pack-box-button img {
+.pack-reload-opening .pack-box-button .pack-box-art {
   animation: pack-open 360ms cubic-bezier(0.4, 0, 0.2, 1) both;
 }
 
@@ -1308,11 +1363,26 @@ button:disabled {
   display: block;
 }
 
-.brand-logo {
-  display: block;
-  width: clamp(150px, 18vw, 265px);
-  height: auto;
+.brand-wordmark {
+  display: grid;
+  gap: 1px;
   filter: drop-shadow(0 4px 12px rgb(0 0 0 / 55%));
+  line-height: 0.92;
+  text-transform: uppercase;
+}
+
+.brand-wordmark span {
+  color: #ffffff;
+  font-size: clamp(1rem, 2.1vw, 1.6rem);
+  font-weight: 800;
+  letter-spacing: 0.16em;
+}
+
+.brand-wordmark strong {
+  color: #ffd95e;
+  font-size: clamp(1.9rem, 4.1vw, 3.1rem);
+  font-weight: 900;
+  letter-spacing: 0.03em;
 }
 
 .game-instruction {
@@ -2248,8 +2318,12 @@ button:disabled {
       max(14px, env(safe-area-inset-left));
   }
 
-  .brand-logo {
-    width: clamp(136px, 39vw, 164px);
+  .brand-wordmark span {
+    font-size: 0.68rem;
+  }
+
+  .brand-wordmark strong {
+    font-size: 1.6rem;
   }
 
   .game-instruction {
@@ -2451,8 +2525,8 @@ button:disabled {
 }
 
 @media (max-width: 420px) {
-  .brand-logo {
-    width: 132px;
+  .brand-wordmark strong {
+    font-size: 1.45rem;
   }
 
   .game-instruction {
@@ -2478,28 +2552,28 @@ button:disabled {
     --flight-launch-y: calc(100dvh - 88px);
   }
 
-  .fatboy-launcher {
+  .sandwich-launcher {
     bottom: max(18px, calc(env(safe-area-inset-bottom) + 12px));
     left: max(104px, 17vw);
     width: 190px;
     height: 140px;
   }
 
-  .fatboy-launcher::before {
+  .sandwich-launcher::before {
     width: 144px;
   }
 
-  .fatboy-launcher-prompt strong {
+  .sandwich-launcher-prompt strong {
     padding-block: 6px;
     font-size: 0.7rem;
   }
 
-  .fatboy-launcher-prompt span {
+  .sandwich-launcher-prompt span {
     margin-top: 3px;
     font-size: 0.62rem;
   }
 
-  .fatboy-launcher-count {
+  .sandwich-launcher-count {
     top: 58%;
     right: 5px;
     width: 36px;

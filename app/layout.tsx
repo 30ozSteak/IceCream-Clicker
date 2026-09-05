@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 const description =
-  "Clear FatBoy boxes, unlock the 12-pack, master nine reload challenges, and climb the global leaderboard.";
+  "Clear ice cream boxes, unlock the 12-pack, master nine reload challenges, and climb the global leaderboard.";
 
 function fallbackOrigin(): URL {
   const vercelHost =
@@ -48,36 +48,22 @@ function metadataOrigin(requestHeaders: Headers): URL {
 
 export async function generateMetadata(): Promise<Metadata> {
   const origin = metadataOrigin(await headers());
-  const socialImage = new URL("/og-v2.png", origin).toString();
 
   return {
     metadataBase: origin,
-    title: "FatBoy Clicker",
+    title: "Ice Cream Clicker",
     description,
     alternates: { canonical: "/" },
-    icons: {
-      icon: "/brand/fatboy-logo.png",
-      shortcut: "/brand/fatboy-logo.png",
-    },
     openGraph: {
       type: "website",
-      title: "FatBoy Clicker",
+      title: "Ice Cream Clicker",
       description,
-      siteName: "FatBoy Clicker",
-      images: [
-        {
-          url: socialImage,
-          width: 1200,
-          height: 630,
-          alt: "FatBoy Clicker — open, toss, unlock",
-        },
-      ],
+      siteName: "Ice Cream Clicker",
     },
     twitter: {
-      card: "summary_large_image",
-      title: "FatBoy Clicker",
+      card: "summary",
+      title: "Ice Cream Clicker",
       description,
-      images: [socialImage],
     },
   };
 }

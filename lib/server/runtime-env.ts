@@ -1,7 +1,7 @@
 import { ApiError } from "./api-error";
 
 const DEVELOPMENT_ROUND_TOKEN_SECRET =
-  "fatboy-feed-frenzy-development-fallback-only";
+  "icecream-clicker-development-fallback-only";
 
 export function getRoundTokenSecret(): string {
   const configured = process.env.ROUND_TOKEN_SECRET;

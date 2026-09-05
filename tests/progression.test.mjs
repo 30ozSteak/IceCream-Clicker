@@ -23,55 +23,46 @@ const EXPECTED_PACKS = [
     id: "vanilla-6",
     quantity: 6,
     mechanic: "precision",
-    imageSrc: "/brand/fatboy-vanilla-6-pack.webp",
   },
   {
     id: "vanilla-12",
     quantity: 12,
     mechanic: "countdown",
-    imageSrc: "/brand/fatboy-vanilla-12-pack.webp",
   },
   {
     id: "cookies-cream-6",
     quantity: 6,
     mechanic: "chip-hop",
-    imageSrc: "/brand/fatboy-cookies-cream-6-pack.webp",
   },
   {
     id: "caramel-cashew-4",
     quantity: 4,
     mechanic: "hands-off",
-    imageSrc: "/brand/fatboy-caramel-cashew-4-pack.webp",
   },
   {
     id: "sugar-cookie-6",
     quantity: 6,
     mechanic: "sprinkle-rush",
-    imageSrc: "/brand/fatboy-sugar-cookie-6-pack.webp",
   },
   {
     id: "caramel-cookies-cream-4",
     quantity: 4,
     mechanic: "converge",
-    imageSrc: "/brand/fatboy-caramel-cookies-cream-4-pack.webp",
   },
   {
     id: "cinnamon-churro-4",
     quantity: 4,
     mechanic: "spiral-hold",
-    imageSrc: "/brand/fatboy-cinnamon-churro-4-pack.webp",
   },
   {
     id: "chocolate-6",
     quantity: 6,
     mechanic: "triple-snap",
-    imageSrc: "/brand/fatboy-chocolate-6-pack.webp",
   },
   {
     id: "birthday-cake-pops-4",
     quantity: 4,
     mechanic: "pop-launch",
-    imageSrc: "/brand/fatboy-birthday-cake-pops-4-pack.webp",
   },
 ];
 
@@ -93,11 +84,10 @@ test("pack catalog keeps the reviewed products, quantities, and mechanics", () =
   assert.equal(PACK_CATALOG.length, EXPECTED_PACKS.length);
   assert.equal(MAX_PACK_QUANTITY, 12);
   assert.deepEqual(
-    PACK_CATALOG.map(({ id, quantity, imageSrc, reload }) => ({
+    PACK_CATALOG.map(({ id, quantity, reload }) => ({
       id,
       quantity,
       mechanic: reload.id,
-      imageSrc,
     })),
     EXPECTED_PACKS,
   );
@@ -110,11 +100,6 @@ test("pack catalog keeps the reviewed products, quantities, and mechanics", () =
     new Set(PACK_CATALOG.map((pack) => pack.reload.id)).size,
     PACK_CATALOG.length,
   );
-  assert.equal(
-    new Set(PACK_CATALOG.map((pack) => pack.imageSrc)).size,
-    PACK_CATALOG.length,
-  );
-
   for (const pack of PACK_CATALOG) {
     assert.equal(getPackById(pack.id), pack);
     assert.ok(pack.name.length > 0);

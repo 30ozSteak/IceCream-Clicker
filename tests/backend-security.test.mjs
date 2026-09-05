@@ -80,7 +80,7 @@ test("nickname validation normalizes supported names", () => {
 test("nickname validation rejects invalid and impersonating names", () => {
   assert.equal(validateNickname("A").ok, false);
   assert.equal(validateNickname("Ada!").ok, false);
-  assert.deepEqual(validateNickname("Fat Boy Official"), {
+  assert.deepEqual(validateNickname("Team Official"), {
     ok: false,
     reason: "blocked",
   });
@@ -88,7 +88,7 @@ test("nickname validation rejects invalid and impersonating names", () => {
     ok: false,
     reason: "blocked",
   });
-  for (const disguised of ["shitlord", "fuckyou2", "f u c k 2", "FаtBoy"]) {
+  for (const disguised of ["shitlord", "fuckyou2", "f u c k 2", "аdmin1"]) {
     assert.deepEqual(validateNickname(disguised), {
       ok: false,
       reason: "blocked",
@@ -313,7 +313,7 @@ test("database error logs redact Postgres credentials without losing classificat
     });
     const response = errorResponse(
       wrappedError,
-      new Request("https://fatboy.example/api/game"),
+      new Request("https://clicker.example/api/game"),
     );
 
     assert.equal(response.status, 503);

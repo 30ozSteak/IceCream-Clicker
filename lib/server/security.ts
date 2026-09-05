@@ -5,7 +5,7 @@ import type {
 
 const SESSION_TOKEN_BYTES = 32;
 const HMAC_SIGNATURE_BYTES = 32;
-const PACK_RELOAD_TOKEN_DOMAIN = "fatboy.pack-reload.v2";
+const PACK_RELOAD_TOKEN_DOMAIN = "icecream-clicker.pack-reload.v2";
 const encoder = new TextEncoder();
 
 export type RoundTokenVerification =

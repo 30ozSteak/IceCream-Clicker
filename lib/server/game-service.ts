@@ -457,7 +457,7 @@ export async function feedPlayer(
     throw new ApiError(
       409,
       "PACK_EMPTY",
-      "Open a new FatBoy pack before feeding another sandwich.",
+      "Open a new pack before feeding another sandwich.",
     );
   }
 
@@ -558,7 +558,7 @@ export async function feedPlayer(
       throw new ApiError(
         409,
         "PACK_EMPTY",
-        "Open a new FatBoy pack before feeding another sandwich.",
+        "Open a new pack before feeding another sandwich.",
       );
     }
     const latestWaitMs = feedWaitMs(latest.lastThrowAtMs, Date.now());

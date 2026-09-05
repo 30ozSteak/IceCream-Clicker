@@ -63,7 +63,6 @@ export interface PackDefinition {
   name: string;
   shortName: string;
   quantity: number;
-  imageSrc: string;
   accent: string;
   accentSoft: string;
   reload: PackReloadDefinition;
@@ -75,7 +74,6 @@ export const PACK_CATALOG = [
     name: "Premium Vanilla",
     shortName: "Vanilla 6",
     quantity: 6,
-    imageSrc: "/brand/fatboy-vanilla-6-pack.webp",
     accent: "#ffd95e",
     accentSoft: "#fff1b4",
     reload: {
@@ -92,7 +90,6 @@ export const PACK_CATALOG = [
     name: "Premium Vanilla 12-Pack",
     shortName: "Vanilla 12",
     quantity: 12,
-    imageSrc: "/brand/fatboy-vanilla-12-pack.webp",
     accent: "#ffd95e",
     accentSoft: "#fff1b4",
     reload: {
@@ -109,7 +106,6 @@ export const PACK_CATALOG = [
     name: "Cookies ’n Cream",
     shortName: "Cookies ’n Cream 6",
     quantity: 6,
-    imageSrc: "/brand/fatboy-cookies-cream-6-pack.webp",
     accent: "#9fc9e8",
     accentSoft: "#dcedfa",
     reload: {
@@ -130,7 +126,6 @@ export const PACK_CATALOG = [
     name: "Caramel Cashew",
     shortName: "Caramel Cashew 4",
     quantity: 4,
-    imageSrc: "/brand/fatboy-caramel-cashew-4-pack.webp",
     accent: "#ff9f4f",
     accentSoft: "#ffd5ae",
     reload: {
@@ -147,7 +142,6 @@ export const PACK_CATALOG = [
     name: "Sugar Cookie",
     shortName: "Sugar Cookie 6",
     quantity: 6,
-    imageSrc: "/brand/fatboy-sugar-cookie-6-pack.webp",
     accent: "#f3a1c8",
     accentSoft: "#ffd6e9",
     reload: {
@@ -168,7 +162,6 @@ export const PACK_CATALOG = [
     name: "Caramel Cookies ’N Cream",
     shortName: "Caramel C’nC 4",
     quantity: 4,
-    imageSrc: "/brand/fatboy-caramel-cookies-cream-4-pack.webp",
     accent: "#8fc5de",
     accentSoft: "#d5eef8",
     reload: {
@@ -185,7 +178,6 @@ export const PACK_CATALOG = [
     name: "Cinnamon Churro",
     shortName: "Cinnamon Churro 4",
     quantity: 4,
-    imageSrc: "/brand/fatboy-cinnamon-churro-4-pack.webp",
     accent: "#d8a15f",
     accentSoft: "#f4d6ad",
     reload: {
@@ -205,7 +197,6 @@ export const PACK_CATALOG = [
     name: "Chocolate",
     shortName: "Chocolate 6",
     quantity: 6,
-    imageSrc: "/brand/fatboy-chocolate-6-pack.webp",
     accent: "#c58b72",
     accentSoft: "#e8c1ae",
     reload: {
@@ -227,7 +218,6 @@ export const PACK_CATALOG = [
     name: "Birthday Cake Sandwich Pops",
     shortName: "Birthday Pops 4",
     quantity: 4,
-    imageSrc: "/brand/fatboy-birthday-cake-pops-4-pack.webp",
     accent: "#59c9e8",
     accentSoft: "#f4b9d8",
     reload: {

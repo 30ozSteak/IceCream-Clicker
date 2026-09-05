@@ -32,8 +32,8 @@ const BLOCKED_WORDS = new Set([
 ]);
 
 const CONFUSABLES: Readonly<Record<string, string>> = {
-  // Common Cyrillic and Greek homoglyphs used to disguise Latin brand names
-  // and blocked words. The nickname itself remains Unicode; only the private
+  // Common Cyrillic and Greek homoglyphs used to disguise reserved names and
+  // blocked words. The nickname itself remains Unicode; only the private
   // comparison key is folded.
   а: "a",
   α: "a",
@@ -94,14 +94,12 @@ export function validateNickname(value: unknown): NicknameValidation {
 
   const words = nickname.split(" ").map(canonicalWord);
   const joined = words.join("");
-  const isReserved =
-    joined.includes("fatboy") ||
-    words.some(
-      (word) =>
-        RESERVED_WORDS.has(word) ||
-        word.startsWith("admin") ||
-        word.startsWith("moderator"),
-    );
+  const isReserved = words.some(
+    (word) =>
+      RESERVED_WORDS.has(word) ||
+      word.startsWith("admin") ||
+      word.startsWith("moderator"),
+  );
   const isProfane = Array.from(BLOCKED_WORDS).some(
     (blockedWord) => joined.includes(blockedWord),
   );

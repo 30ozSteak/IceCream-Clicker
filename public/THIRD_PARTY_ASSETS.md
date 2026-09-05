@@ -2,26 +2,6 @@
 
 Source review date: 2026-08-25.
 
-## FatBoy brand assets
-
-- `brand/fatboy-logo.png` — current FatBoy wordmark, sourced from the header of the official [FatBoy website](https://fatboyicecream.com/) ([original PNG](https://fatboyicecream.com/wp-content/uploads/2023/11/FB-Logo-23c.png)).
-- `brand/fatboy-vanilla-6-pack.webp` — current Premium Vanilla six-count retail box, sourced from the official [Ice Cream Sandwiches page](https://fatboyicecream.com/ice-cream-sandwiches/) ([original PNG](https://fatboyicecream.com/wp-content/uploads/2025/02/FB-SandwichVanilla-6ct-3dbox-01.png)); locally WebP-compressed at its original 2048×2048 dimensions without creative alteration.
-- `brand/fatboy-vanilla-12-pack.webp` — Premium Vanilla twelve-count retail box, sourced from the [Smart & Final product page](https://www.smartandfinal.com/product/fatboy-ice-cream-sandwiches-vanilla-premium-id-00077865001015) ([original retailer JPEG](https://storage.googleapis.com/images-che-prd-2b77e46.che.prd.v8.commerce.mi9cloud.com/product-images/zoom/dab52390-77dc-48e5-940d-120ddf8144b5.jpeg)); locally resized to 1200×1200 and WebP-compressed without creative alteration.
-- `brand/fatboy-cookies-cream-6-pack.webp` — Cookies 'n Cream six-count retail box, sourced from the official [Cookies 'n Cream product page](https://fatboyicecream.com/fatboy-cookies-n-cream-sandwich/) ([original PNG](https://fatboyicecream.com/wp-content/uploads/2023/10/FB-SandwichCookiesNCream-6ct-3dbox-02.png)); locally resized to 1200×1200 and WebP-compressed without creative alteration.
-- `brand/fatboy-caramel-cashew-4-pack.webp` — Caramel Cashew four-count retail box, sourced from the official [Caramel Cashew product page](https://fatboyicecream.com/fatboy-caramel-cashew-cookie-sandwich/) ([original PNG](https://fatboyicecream.com/wp-content/uploads/2024/02/FB-CarCash-CookieBox.png)); locally resized to 1200×1200 and WebP-compressed without creative alteration.
-- `brand/fatboy-sugar-cookie-6-pack.webp` — Sugar Cookie six-count retail box, sourced from the official [Sugar Cookie product page](https://fatboyicecream.com/fatboy-sugar-cookie-sandwich/) ([original PNG](https://fatboyicecream.com/wp-content/uploads/2023/10/FB-SandwichSugarCookie-6ct-3dbox-05.png)); locally resized to 1200×1200 and WebP-compressed without creative alteration.
-- `brand/fatboy-caramel-cookies-cream-4-pack.webp` — Caramel Cookies 'N Cream four-count retail box, sourced from the official [Caramel Cookies 'N Cream product page](https://fatboyicecream.com/fatboy-caramel-cookies-n-cream-cookie-sandwich/) ([original PNG](https://fatboyicecream.com/wp-content/uploads/2024/02/FB-CNC-CookieBox.png)); locally resized to 1200×1200 and WebP-compressed without creative alteration.
-- `brand/fatboy-cinnamon-churro-4-pack.webp` — Cinnamon Churro four-count retail box, sourced from the official [Cinnamon Churro product page](https://fatboyicecream.com/fatboy-cinnamon-churro-caramel-cookie-sandwich/) ([original PNG](https://fatboyicecream.com/wp-content/uploads/2024/10/FB-Churro-Sandwich-3D.png)); locally resized to 1200×1200 and WebP-compressed without creative alteration.
-- `brand/fatboy-chocolate-6-pack.webp` — Chocolate six-count retail box, sourced from the official [Chocolate product page](https://fatboyicecream.com/fatboy-chocolate-ice-cream-sandwich/) ([original PNG](https://fatboyicecream.com/wp-content/uploads/2026/02/Chocolate-6ct-2025_3DBOX_LEFT.png)); locally resized to 1200×1200 and WebP-compressed without creative alteration.
-- `brand/fatboy-birthday-cake-pops-4-pack.webp` — Birthday Cake Pops four-count retail box, sourced from the official [Birthday Cake Sandwich Pop product page](https://fatboyicecream.com/fatboy-birthday-cake-sandwich-pop/) ([original PNG](https://fatboyicecream.com/wp-content/uploads/2024/10/FB-Birthday-Cake-4ct-3D-1.png)); locally resized to 1042×1200 and WebP-compressed without creative alteration.
-- `brand/vanilla-sandwich.webp` — “Vanilla Ice Cream Sandwich,” sourced from the official [FatBoy Broker Resource Center](https://fatboyicecream.com/brokers/) ([original JPEG](https://fatboyicecream.com/downloads/vanilla2.jpg)); locally resized and WebP-compressed without creative alteration.
-
-FatBoy and Casper's brand assets remain the property of their respective rights holders and are included under the project's stated brand authorization.
-
-## 3D model
-
-- `models/fatboy-sandwich.glb` — user-supplied Meshy-generated FatBoy model, simplified from roughly 3.1 million to 62,728 triangles and resized to 1024px WebP textures for real-time browser rendering. The optimized file retains the supplied model's geometry and material artwork.
-
 ## Open Pravatar portraits
 
 The files in `portraits/` are locally cached, pre-generated synthetic images from [Open Pravatar](https://openpravatar.com/docs). They are not photographs of real people. The catalog records every selected image as `review_status: approved`, `subject_count: 1`, and `license: synthetic-commercial`.

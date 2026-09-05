@@ -17,10 +17,10 @@ type Point = {
   y: number;
 };
 
-type FatboyProjectileProps = {
+type SandwichProjectileProps = {
   flightDurationMs?: number;
   idle?: boolean;
-  modelUrl?: string;
+  modelUrl?: string | null;
   onReadyChange?: (ready: boolean) => void;
   reducedMotion: boolean;
   spin?: ThrowSpin;
@@ -46,9 +46,12 @@ type SandwichFlightStyle = CSSProperties & {
 
 type LoadStatus = "loading" | "ready" | "failed";
 
-export const FATBOY_MODELS = {
-  vanilla: "/models/fatboy-sandwich.glb",
-} as const;
+// No 3D sandwich model ships with the project. Point `vanilla` at a GLB under
+// `public/models` to re-enable the WebGL projectile; while it is null every
+// throw falls back to the CSS illustration this component renders.
+export const SANDWICH_MODELS = {
+  vanilla: null,
+} as const satisfies Record<string, string | null>;
 
 function disposeMaterial(material: THREE.Material) {
   const values = Object.values(material) as unknown[];
@@ -86,21 +89,21 @@ function disposeObject(root: THREE.Object3D) {
   materials.forEach(disposeMaterial);
 }
 
-export function FatboyProjectile({
+export function SandwichProjectile({
   flightDurationMs = 800,
   idle = false,
-  modelUrl = FATBOY_MODELS.vanilla,
+  modelUrl = SANDWICH_MODELS.vanilla,
   onReadyChange,
   reducedMotion,
   spin = NO_THROW_SPIN,
   target,
-}: FatboyProjectileProps) {
+}: SandwichProjectileProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const runtimeRef = useRef<Runtime | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const [viewportVersion, setViewportVersion] = useState(0);
   const [loadState, setLoadState] = useState<{
-    modelUrl: string;
+    modelUrl: string | null;
     status: LoadStatus;
   }>(() => ({ modelUrl, status: "loading" }));
   const loadStatus =
@@ -114,7 +117,8 @@ export function FatboyProjectile({
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas) {
+    const url = modelUrl;
+    if (!canvas || !url) {
       return;
     }
 
@@ -202,7 +206,7 @@ export function FatboyProjectile({
     const loader = new GLTFLoader();
     loader.setMeshoptDecoder(MeshoptDecoder);
     loader.load(
-      modelUrl,
+      url,
       (gltf) => {
         if (disposed) {
           disposeObject(gltf.scene);
@@ -413,11 +417,13 @@ export function FatboyProjectile({
     : undefined;
 
   return (
-    <div className="fatboy-projectile-layer" aria-hidden="true">
-      <canvas className="fatboy-projectile-canvas" ref={canvasRef} />
+    <div className="sandwich-projectile-layer" aria-hidden="true">
+      {modelUrl ? (
+        <canvas className="sandwich-projectile-canvas" ref={canvasRef} />
+      ) : null}
       {target && loadStatus !== "ready" ? (
         <span
-          className="sandwich-flight sandwich-flight-fallback fatboy-sandwich-illustration"
+          className="sandwich-flight sandwich-flight-fallback sandwich-illustration"
           style={fallbackStyle}
         >
           <i />

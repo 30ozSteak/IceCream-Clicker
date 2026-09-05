@@ -44,9 +44,9 @@ import {
   isElapsedInWindow,
 } from "../lib/reload-interactions";
 
-const FatboyProjectile = dynamic(
+const SandwichProjectile = dynamic(
   () =>
-    import("./FatboyProjectile").then((module) => module.FatboyProjectile),
+    import("./SandwichProjectile").then((module) => module.SandwichProjectile),
   { ssr: false },
 );
 
@@ -160,6 +160,11 @@ type ActiveReloadStyle = CSSProperties & {
   "--pack-accent-soft": string;
 };
 
+type PackBoxStyle = CSSProperties & {
+  "--pack-accent": string;
+  "--pack-accent-soft": string;
+};
+
 type SandwichFlightStyle = CSSProperties & {
   "--flight-duration": string;
   "--flight-spin-end": string;
@@ -196,8 +201,8 @@ type FeedReaction = {
 
 const numberFormatter = new Intl.NumberFormat("en-US");
 const nicknamePattern = /^[\p{L}\p{N}]+(?: [\p{L}\p{N}]+)*$/u;
-const FATBOY_THROW_DURATION_MS = 800;
-const FATBOY_REDUCED_MOTION_DURATION_MS = 420;
+const SANDWICH_THROW_DURATION_MS = 800;
+const SANDWICH_REDUCED_MOTION_DURATION_MS = 420;
 
 class ApiError extends Error {
   status: number;
@@ -444,7 +449,7 @@ function LeaderboardContents({
   }
 
   return (
-    <ol className="leader-list" aria-label="Top ten FatBoy feeders">
+    <ol className="leader-list" aria-label="Top ten sandwich feeders">
       {leaders.map((leader) => {
         const isCurrentPlayer = leader.displayName === currentDisplayName;
         return (
@@ -495,16 +500,18 @@ function ClearedBoxStack({ count }: { count: number }) {
               className={`cleared-box${index === boxes.length - 1 ? " cleared-box-newest" : ""}`}
               key={`${pack.id}-${ordinal}`}
             >
-              <img
-                src={pack.imageSrc}
-                alt=""
-                width="1200"
-                height="1200"
-                loading={index > 5 ? "lazy" : "eager"}
-                decoding="async"
-                draggable={false}
+              <span
+                className="pack-box-art"
+                style={
+                  {
+                    "--pack-accent": pack.accent,
+                    "--pack-accent-soft": pack.accentSoft,
+                  } as PackBoxStyle
+                }
                 aria-hidden="true"
-              />
+              >
+                <i />
+              </span>
               <span className="cleared-box-stamp" aria-hidden="true">
                 empty
               </span>
@@ -546,14 +553,14 @@ function NicknameDialog({
         <p className="plain-dialog-kicker">One-thumb feed frenzy</p>
         <h2 id="nickname-title">Feed the crowd.</h2>
         <p id="nickname-description">
-          Tap the FatBoy at the bottom and it flies straight to the mouth.
+          Tap the sandwich at the bottom and it flies straight to the mouth.
           Empty three boxes to unlock the 12-pack.
         </p>
 
         <ol className="onboarding-loop" aria-label="How to play">
           <li>
             <strong>1</strong>
-            <span>Tap FatBoy</span>
+            <span>Tap sandwich</span>
           </li>
           <li>
             <strong>2</strong>
@@ -1014,7 +1021,7 @@ export function GameClient() {
     setGlobalTotal((current) => (current === null ? null : current + 1));
     setStreak(previousStreak + 1);
     setAnnouncement(
-      `FatBoy tossed. Your total is ${snapshot.player.sandwichesFed + 1}.`,
+      `Sandwich tossed. Your total is ${snapshot.player.sandwichesFed + 1}.`,
     );
 
     const feedRequest = requestJson<ApiFeedResponse>("/api/feed", {
@@ -1042,8 +1049,8 @@ export function GameClient() {
 
     await delay(
       reducedMotion
-        ? FATBOY_REDUCED_MOTION_DURATION_MS
-        : FATBOY_THROW_DURATION_MS,
+        ? SANDWICH_REDUCED_MOTION_DURATION_MS
+        : SANDWICH_THROW_DURATION_MS,
     );
     reactionIdRef.current += 1;
     const reactionId = reactionIdRef.current;
@@ -2178,13 +2185,13 @@ export function GameClient() {
             </button>
           ) : null}
 
-          <FatboyProjectile
+          <SandwichProjectile
             idle={showLauncher && !sandwichTarget}
             target={shotUsesThree ? sandwichTarget : null}
             flightDurationMs={
               reducedMotion
-                ? FATBOY_REDUCED_MOTION_DURATION_MS
-                : FATBOY_THROW_DURATION_MS
+                ? SANDWICH_REDUCED_MOTION_DURATION_MS
+                : SANDWICH_THROW_DURATION_MS
             }
             onReadyChange={setThreeProjectileReady}
             reducedMotion={reducedMotion}
@@ -2192,12 +2199,12 @@ export function GameClient() {
           />
           {sandwichTarget && !shotUsesThree ? (
             <span
-              className="sandwich-flight fatboy-sandwich-illustration"
+              className="sandwich-flight sandwich-illustration"
               style={
                 {
                   left: sandwichTarget.x,
                   top: sandwichTarget.y,
-                  "--flight-duration": `${FATBOY_THROW_DURATION_MS}ms`,
+                  "--flight-duration": `${SANDWICH_THROW_DURATION_MS}ms`,
                   "--flight-spin-end": `${8 + throwSpin.zTurns * 360}deg`,
                   "--flight-spin-mid": `${throwSpin.zTurns * 216}deg`,
                   "--flight-target-x": `${sandwichTarget.x}px`,
@@ -2226,7 +2233,7 @@ export function GameClient() {
 
           {showLauncher && player ? (
             <button
-              className={`fatboy-launcher${isFeeding ? " fatboy-launcher-feeding" : ""}${showFeedTutorial ? " fatboy-launcher-tutorial" : ""}${isFeeding || offline || !canLaunch ? " fatboy-launcher-disabled" : ""}`}
+              className={`sandwich-launcher${isFeeding ? " sandwich-launcher-feeding" : ""}${showFeedTutorial ? " sandwich-launcher-tutorial" : ""}${isFeeding || offline || !canLaunch ? " sandwich-launcher-disabled" : ""}`}
               type="button"
               onClick={handleFeed}
               aria-disabled={isFeeding || offline || !canLaunch}
@@ -2234,12 +2241,12 @@ export function GameClient() {
                 isFeeding && !sandwichTarget
                   ? packEmpty
                     ? "Box cleared. Getting the next box ready."
-                    : `Getting the next FatBoy. ${player.sandwichesRemaining} left in this box.`
-                  : `Throw FatBoy. ${player.sandwichesRemaining} ${player.sandwichesRemaining === 1 ? "sandwich" : "sandwiches"} left in this box.`
+                    : `Getting the next sandwich. ${player.sandwichesRemaining} left in this box.`
+                  : `Throw sandwich. ${player.sandwichesRemaining} ${player.sandwichesRemaining === 1 ? "sandwich" : "sandwiches"} left in this box.`
               }
               aria-describedby="mouth-instructions"
             >
-              <span className="fatboy-launcher-prompt" aria-hidden="true">
+              <span className="sandwich-launcher-prompt" aria-hidden="true">
                 {isFeeding ? (
                   <strong>
                     {sandwichTarget
@@ -2253,22 +2260,22 @@ export function GameClient() {
               </span>
               {!threeProjectileReady ? (
                 <span
-                  className="fatboy-sandwich-illustration fatboy-launcher-placeholder"
+                  className="sandwich-illustration sandwich-launcher-placeholder"
                   aria-hidden="true"
                 >
                   <i />
                 </span>
               ) : null}
-              <span className="fatboy-launcher-count" aria-hidden="true">
+              <span className="sandwich-launcher-count" aria-hidden="true">
                 <strong>{player.sandwichesRemaining}</strong>
                 <span>left</span>
               </span>
-              <span className="fatboy-launcher-pips" aria-hidden="true">
+              <span className="sandwich-launcher-pips" aria-hidden="true">
                 {Array.from({ length: packQuantity }, (_, index) => (
                   <i
                     className={
                       index < player.sandwichesRemaining
-                        ? "fatboy-launcher-pip-ready"
+                        ? "sandwich-launcher-pip-ready"
                         : undefined
                     }
                     key={index}
@@ -2342,14 +2349,9 @@ export function GameClient() {
                         : undefined
                   }
                 >
-                  <img
-                    src={reloadPack.imageSrc}
-                    alt=""
-                    width="1200"
-                    height="1200"
-                    draggable={false}
-                    aria-hidden="true"
-                  />
+                  <span className="pack-box-art" aria-hidden="true">
+                    <i />
+                  </span>
                   <span className="pack-quantity-badge" aria-hidden="true">
                     <strong>{reloadPack.quantity}</strong>
                     <span>ready</span>
@@ -2439,13 +2441,10 @@ export function GameClient() {
         >
           <div className="brand-stack">
             <h1 className="brand-lockup">
-              <img
-                className="brand-logo"
-                src="/brand/fatboy-logo.png"
-                alt="FatBoy"
-                width="450"
-                height="130"
-              />
+              <span className="brand-wordmark">
+                <span>Ice Cream</span>
+                <strong>Clicker</strong>
+              </span>
             </h1>
             <p className="game-instruction" id="mouth-instructions">
               {packEmpty

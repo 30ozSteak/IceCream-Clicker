@@ -14,7 +14,7 @@ async function openCache(): Promise<Cache | null> {
   if (typeof caches === "undefined") {
     return null;
   }
-  return caches.open("fatboy-feed-frenzy-api");
+  return caches.open("icecream-clicker-api");
 }
 
 export const dynamic = "force-dynamic";
@@ -38,7 +38,7 @@ export async function GET(request: Request): Promise<Response> {
         const cached = await cache.match(key);
         if (cached) {
           const response = new Response(cached.body, cached);
-          response.headers.set("X-FatBoy-Cache", "HIT");
+          response.headers.set("X-Leaderboard-Cache", "HIT");
           return response;
         }
       } catch (error) {
@@ -56,7 +56,7 @@ export async function GET(request: Request): Promise<Response> {
       headers: {
         "Cache-Control": `public, max-age=${CACHE_TTL_SECONDS}, s-maxage=${CACHE_TTL_SECONDS}`,
         "X-Content-Type-Options": "nosniff",
-        "X-FatBoy-Cache": "MISS",
+        "X-Leaderboard-Cache": "MISS",
       },
     });
 
