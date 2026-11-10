@@ -35,6 +35,94 @@ export const FLAVORS: readonly FlavorDefinition[] = [
   { name: "Double Chocolate", accent: "#c98a5b", accentSoft: "#ecd3bf" },
 ];
 
+export type BonusKind = "golden" | "sprinkle" | "drone" | "mystery";
+
+export interface UnlockDefinition {
+  readonly id: string;
+  readonly name: string;
+  readonly icon: string;
+  readonly cost: number;
+  readonly description: string;
+}
+
+/** One-time purchases, bought in this order. They survive a flavor launch. */
+export const UNLOCKS: readonly UnlockDefinition[] = [
+  {
+    id: "brain-freeze",
+    name: "Brain Freeze",
+    icon: "🧊",
+    cost: 200,
+    description: "Tap fast to fill the meter, then earn 2× for 10s",
+  },
+  {
+    id: "golden-sandwich",
+    name: "Golden Sandwich",
+    icon: "✨",
+    cost: 2_500,
+    description: "Catch it as it floats by for a 7× Sugar Rush",
+  },
+  {
+    id: "sprinkle-shower",
+    name: "Sprinkle Shower",
+    icon: "🌈",
+    cost: 25_000,
+    description: "Tap falling sprinkles for quick bursts of treats",
+  },
+  {
+    id: "delivery-drone",
+    name: "Delivery Drone",
+    icon: "🚁",
+    cost: 250_000,
+    description: "Tap the drone to grab a full minute of treats",
+  },
+  {
+    id: "mystery-cone",
+    name: "Mystery Cone",
+    icon: "🍦",
+    cost: 2_500_000,
+    description: "Pops up now and then. Always good, sometimes huge",
+  },
+];
+
+export const UNLOCK_BRAIN_FREEZE = 0;
+export const UNLOCK_GOLDEN = 1;
+export const UNLOCK_SPRINKLES = 2;
+export const UNLOCK_DRONE = 3;
+export const UNLOCK_MYSTERY = 4;
+
+export const BONUS_UNLOCK: Readonly<Record<BonusKind, number>> = {
+  golden: UNLOCK_GOLDEN,
+  sprinkle: UNLOCK_SPRINKLES,
+  drone: UNLOCK_DRONE,
+  mystery: UNLOCK_MYSTERY,
+};
+
+export interface BonusEventDefinition {
+  /** Shortest and longest wait between appearances. */
+  readonly minDelayMs: number;
+  readonly maxDelayMs: number;
+  /** How long one target stays catchable. */
+  readonly lifeMs: number;
+  /** Targets per appearance. */
+  readonly count: number;
+  /** Seconds of production each caught target pays as a lump sum. */
+  readonly payoutSeconds: number;
+}
+
+export const BONUS_EVENTS: Readonly<Record<BonusKind, BonusEventDefinition>> = {
+  golden: { minDelayMs: 40_000, maxDelayMs: 80_000, lifeMs: 9_000, count: 1, payoutSeconds: 0 },
+  sprinkle: { minDelayMs: 45_000, maxDelayMs: 80_000, lifeMs: 4_500, count: 10, payoutSeconds: 2 },
+  drone: { minDelayMs: 60_000, maxDelayMs: 110_000, lifeMs: 8_000, count: 1, payoutSeconds: 60 },
+  mystery: { minDelayMs: 120_000, maxDelayMs: 200_000, lifeMs: 8_000, count: 1, payoutSeconds: 150 },
+};
+
+export const FRENZY_PER_TAP = 0.04;
+export const FRENZY_DECAY_PER_SECOND = 0.3;
+
+/** Lump sums are paid in "seconds of production": idle income plus a steady 5 taps a second. */
+const PRODUCTION_TAPS_PER_SECOND = 5;
+const PRODUCTION_FLOOR = 5;
+
 export const FEEDER_COST_GROWTH = 1.15;
 export const TAP_UPGRADE_BASE_COST = 10;
 export const TAP_UPGRADE_COST_GROWTH = 1.35;
@@ -52,7 +140,7 @@ export const BIG_EATER_BONUS_SHARE = 0.3;
 export const FRENZY_MULTIPLIER = 2;
 export const FRENZY_DURATION_MS = 10_000;
 export const SUGAR_RUSH_MULTIPLIER = 7;
-export const SUGAR_RUSH_DURATION_MS = 30_000;
+export const SUGAR_RUSH_DURATION_MS = 20_000;
 
 export const PRESTIGE_THRESHOLD = 1_000_000;
 export const SPRINKLE_BONUS = 0.1;
@@ -71,6 +159,16 @@ export const MAX_TAPS_PER_SECOND = 20;
 /** Customer bonuses add at most this factor on top of what was fed. */
 const BONUS_HEADROOM = 1 + CUSTOMER_BONUS_SHARE;
 const SYNC_GRACE_MS = 2_000;
+/** Lump-sum production per second of play if every bonus is caught as soon as it can appear. */
+const LUMP_RATE = (Object.values(BONUS_EVENTS) as BonusEventDefinition[]).reduce(
+  (total, event) => total + (event.count * event.payoutSeconds * 1_000) / event.minDelayMs,
+  0,
+);
+/** Every bonus can land inside one short sync window, once. */
+const LUMP_BURST = (Object.values(BONUS_EVENTS) as BonusEventDefinition[]).reduce(
+  (total, event) => total + event.count * event.payoutSeconds,
+  0,
+);
 /** Keeps every stored number an exact double and the leaderboard a safe integer. */
 export const MAX_AMOUNT = 9e15;
 
@@ -84,6 +182,8 @@ export interface Progress {
   tapLevel: number;
   /** Units owned per entry in FEEDERS. */
   feeders: number[];
+  /** How many entries of UNLOCKS are owned (they are bought in order). */
+  unlocks: number;
   /** 1-based number of the customer at the counter. */
   customer: number;
   customerProgress: number;
@@ -102,6 +202,7 @@ export function createProgress(lifetimeFed = 0): Progress {
     runFed: 0,
     tapLevel: 0,
     feeders: FEEDERS.map(() => 0),
+    unlocks: 0,
     customer: 1,
     customerProgress: 0,
     sprinkles: 0,
@@ -145,6 +246,7 @@ export function isProgress(value: unknown): value is Progress {
     Array.isArray(p.feeders) &&
     p.feeders.length === FEEDERS.length &&
     p.feeders.every((count) => isCount(count, 10_000)) &&
+    isCount(p.unlocks, UNLOCKS.length) &&
     isCount(p.customer) &&
     p.customer >= 1 &&
     isCount(p.sprinkles) &&
@@ -153,6 +255,23 @@ export function isProgress(value: unknown): value is Progress {
     isCount(p.dailyStreak) &&
     isCount(p.lastDailyDay)
   );
+}
+
+/** Reads progress saved by an older version, filling in fields added since. */
+export function upgradeProgress(value: unknown): Progress | null {
+  if (typeof value !== "object" || value === null) {
+    return null;
+  }
+  const upgraded = { unlocks: 0, ...(value as Record<string, unknown>) };
+  return isProgress(upgraded) ? upgraded : null;
+}
+
+export function hasUnlock(p: Progress, index: number): boolean {
+  return p.unlocks > index;
+}
+
+export function nextUnlock(p: Progress): UnlockDefinition | null {
+  return UNLOCKS[p.unlocks] ?? null;
 }
 
 export function flavorMultiplier(p: Progress): number {
@@ -198,6 +317,9 @@ export function totalSpent(p: Progress): number {
     for (let owned = 0; owned < p.feeders[index]; owned += 1) {
       spent += feederCost(index, owned);
     }
+  }
+  for (let index = 0; index < p.unlocks; index += 1) {
+    spent += UNLOCKS[index].cost;
   }
   return spent;
 }
@@ -307,6 +429,34 @@ export function buyFeeder(p: Progress, index: number): Progress | null {
   return { ...p, scoops: p.scoops - cost, feeders };
 }
 
+export function buyUnlock(p: Progress): Progress | null {
+  const unlock = nextUnlock(p);
+  if (!unlock || p.scoops < unlock.cost) {
+    return null;
+  }
+  return { ...p, scoops: p.scoops - unlock.cost, unlocks: p.unlocks + 1 };
+}
+
+/** One "second of production", the unit bonus lump sums are paid in. */
+export function productionPerSecond(p: Progress): number {
+  return Math.max(
+    PRODUCTION_FLOOR,
+    idleRate(p) + PRODUCTION_TAPS_PER_SECOND * tapValue(p),
+  );
+}
+
+/** What one caught target of this kind pays as a lump sum (0 for boosts). */
+export function bonusPayout(p: Progress, kind: BonusKind): number {
+  return Math.round(productionPerSecond(p) * BONUS_EVENTS[kind].payoutSeconds);
+}
+
+export type MysteryOutcome = "rush" | "freeze" | "feast";
+
+export function rollMystery(random: () => number = Math.random): MysteryOutcome {
+  const roll = random();
+  return roll < 0.35 ? "rush" : roll < 0.6 ? "freeze" : "feast";
+}
+
 export function prestigeSprinkles(runFed: number): number {
   if (runFed < PRESTIGE_THRESHOLD) {
     return 0;
@@ -326,6 +476,7 @@ export function prestige(p: Progress): Progress | null {
     sprinkles: p.sprinkles + gained,
     flavorIndex: p.flavorIndex + 1,
     milestonesClaimed: p.milestonesClaimed,
+    unlocks: p.unlocks,
     dailyStreak: p.dailyStreak,
     lastDailyDay: p.lastDailyDay,
   };
@@ -378,8 +529,10 @@ export function claimDaily(
 
 /**
  * The most a player could have earned between two syncs: tapping at the rate
- * cap with both boosts running the whole time, plus every customer bonus.
- * Rates only rise between syncs, so the newer state's rates bound the interval.
+ * cap with both boosts running the whole time, every bonus target caught as
+ * often as it can appear (plus one of each landing at once), and every
+ * customer bonus. Rates only rise between syncs, so the newer state's rates
+ * bound the interval.
  */
 export function maxPlausibleEarnings(
   prev: Progress,
@@ -392,7 +545,9 @@ export function maxPlausibleEarnings(
     MAX_TAPS_PER_SECOND * tapValue(next) + idleRate(next),
   );
   const fed =
-    perSecond * seconds * FRENZY_MULTIPLIER * SUGAR_RUSH_MULTIPLIER;
+    perSecond *
+    (seconds * (FRENZY_MULTIPLIER * SUGAR_RUSH_MULTIPLIER + LUMP_RATE) +
+      LUMP_BURST);
   let milestoneRewards = 0;
   for (
     let index = prev.milestonesClaimed;
@@ -436,6 +591,7 @@ export function validateSync(
   }
   if (
     next.tapLevel < prev.tapLevel ||
+    next.unlocks < prev.unlocks ||
     next.customer < prev.customer ||
     next.milestonesClaimed < prev.milestonesClaimed ||
     next.lifetimeFed < prev.lifetimeFed ||

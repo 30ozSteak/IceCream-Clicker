@@ -2999,14 +2999,46 @@ button:disabled {
   line-height: 1;
 }
 
+.shop-scroll {
+  min-height: 0;
+  padding-bottom: 8px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.shop-section {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin: 8px 0 0;
+  padding: 0 16px;
+  color: rgb(255 255 255 / 60%);
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.shop-section span {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.06em;
+}
+
 .shop-list {
   display: grid;
   gap: 6px;
   margin: 0;
-  padding: 6px 10px 12px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
+  padding: 6px 10px 4px;
   list-style: none;
+}
+
+.shop-row-unlock {
+  border-color: rgb(255 217 94 / 45%);
+  background: linear-gradient(100deg, rgb(255 217 94 / 14%), rgb(255 255 255 / 4%) 60%);
+}
+
+.shop-row-unlock .shop-copy > span {
+  white-space: normal;
 }
 
 .shop-row {
@@ -3092,11 +3124,313 @@ button:disabled {
   background: rgb(7 8 12 / 78%);
 }
 
+/* Boost meters under the hunger bar */
+
+.boosts {
+  display: grid;
+  gap: 6px;
+}
+
+.boost {
+  position: relative;
+  height: 26px;
+  overflow: hidden;
+  border: 1px solid rgb(160 220 255 / 30%);
+  border-radius: 999px;
+  background: rgb(7 8 12 / 62%);
+  backdrop-filter: blur(12px);
+}
+
+.boost i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: linear-gradient(90deg, #7fd6ff, #c7f0ff);
+  opacity: 0.55;
+  transition: width 100ms linear;
+}
+
+.boost span {
+  position: relative;
+  display: block;
+  padding: 0 12px;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  line-height: 24px;
+  text-align: center;
+  text-shadow: 0 1px 4px rgb(0 0 0 / 70%);
+  text-transform: uppercase;
+}
+
+.boost-on {
+  border-color: rgb(160 220 255 / 80%);
+  box-shadow: 0 0 18px rgb(127 214 255 / 55%);
+}
+
+.boost-on i {
+  opacity: 0.9;
+}
+
+.boost-on span {
+  text-shadow:
+    0 1px 2px rgb(0 0 0 / 90%),
+    0 0 8px rgb(0 0 0 / 60%);
+}
+
+.boost-rush {
+  border-color: rgb(255 217 94 / 85%);
+  box-shadow: 0 0 22px rgb(255 190 40 / 60%);
+}
+
+.boost-rush i {
+  background: linear-gradient(90deg, #ffb82e, #ffe58a);
+}
+
+.fx-float-boost {
+  color: #ffffff;
+  font-size: clamp(1.6rem, 7vw, 2.6rem);
+  text-shadow:
+    0 2px 0 #0b5a8a,
+    0 0 18px rgb(127 214 255 / 90%),
+    0 4px 12px rgb(0 0 0 / 70%);
+  animation-duration: 1.3s;
+}
+
+/* Catchable bonus targets */
+
+.bonus-layer {
+  position: absolute;
+  z-index: 8;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.bonus {
+  position: absolute;
+  display: grid;
+  width: 76px;
+  height: 76px;
+  margin: -38px 0 0 -38px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  pointer-events: auto;
+  touch-action: manipulation;
+  animation-duration: var(--life);
+  animation-fill-mode: both;
+  animation-timing-function: linear;
+}
+
+.bonus:focus-visible {
+  border-radius: 50%;
+  outline: 3px solid #ffffff;
+  outline-offset: 2px;
+}
+
+.bonus-golden {
+  top: var(--y);
+  left: -10%;
+  width: 96px;
+  margin-left: -48px;
+  animation-name: bonus-drift;
+}
+
+.bonus-golden-art {
+  position: relative;
+  width: 84px;
+  filter: sepia(1) saturate(4) hue-rotate(-12deg) brightness(1.15) drop-shadow(0 0 12px rgb(255 214 64 / 95%));
+  animation: bonus-bob 900ms ease-in-out infinite alternate;
+}
+
+.bonus-sprinkle {
+  top: -8%;
+  left: var(--x);
+  width: 60px;
+  height: 60px;
+  margin: -30px 0 0 -30px;
+  animation-name: bonus-fall;
+  animation-timing-function: cubic-bezier(0.45, 0, 0.75, 1);
+}
+
+.bonus-sprinkle-art {
+  width: 14px;
+  height: 40px;
+  border: 2px solid rgb(0 0 0 / 35%);
+  border-radius: 999px;
+  background: var(--sprinkle);
+  box-shadow: 0 0 14px var(--sprinkle);
+  transform: rotate(var(--tilt));
+}
+
+.bonus-drone {
+  top: var(--y);
+  left: 110%;
+  width: 96px;
+  height: 96px;
+  margin: -48px 0 0 -48px;
+  animation-name: bonus-fly;
+}
+
+.bonus-drone-art {
+  display: grid;
+  justify-items: center;
+  font-size: 2.6rem;
+  line-height: 1;
+  filter: drop-shadow(0 6px 10px rgb(0 0 0 / 55%));
+  animation: bonus-bob 600ms ease-in-out infinite alternate;
+}
+
+.bonus-drone-crate {
+  margin-top: -6px;
+  font-size: 1.7rem;
+}
+
+.bonus-mystery {
+  top: var(--y);
+  left: var(--x);
+  width: 92px;
+  height: 92px;
+  margin: -46px 0 0 -46px;
+  animation-name: bonus-pop;
+}
+
+.bonus-mystery-art {
+  position: relative;
+  display: grid;
+  width: 80px;
+  height: 80px;
+  place-items: center;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgb(205 140 255 / 85%), rgb(120 60 220 / 0%) 70%);
+  font-size: 2.6rem;
+  animation: bonus-wobble 500ms ease-in-out infinite alternate;
+}
+
+.bonus-mystery-art b {
+  position: absolute;
+  top: -2px;
+  right: 2px;
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: 50%;
+  background: #8a3dff;
+  color: #ffffff;
+  font-size: 1rem;
+  font-weight: 900;
+  box-shadow: 0 0 0 3px #ffffff;
+}
+
+@keyframes bonus-drift {
+  from {
+    left: -10%;
+  }
+  to {
+    left: 112%;
+  }
+}
+
+@keyframes bonus-fall {
+  from {
+    top: -8%;
+    transform: rotate(0deg);
+  }
+  to {
+    top: 108%;
+    transform: rotate(220deg);
+  }
+}
+
+@keyframes bonus-fly {
+  0% {
+    left: 112%;
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(30px);
+  }
+  100% {
+    left: -12%;
+    transform: translateY(0);
+  }
+}
+
+@keyframes bonus-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.2);
+  }
+  8% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+  14%,
+  85% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+}
+
+@keyframes bonus-bob {
+  from {
+    transform: translateY(-6px) rotate(-6deg);
+  }
+  to {
+    transform: translateY(6px) rotate(6deg);
+  }
+}
+
+@keyframes bonus-wobble {
+  from {
+    transform: rotate(-10deg) scale(0.96);
+  }
+  to {
+    transform: rotate(10deg) scale(1.04);
+  }
+}
+
+@keyframes bonus-hold {
+  0%,
+  85% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .tap-hint,
   .tab-alert::after,
-  .shop-sheet {
+  .shop-sheet,
+  .bonus-golden-art,
+  .bonus-drone-art,
+  .bonus-mystery-art {
     animation: none;
+  }
+
+  /* Bonuses hold still and fade out instead of moving. */
+  .bonus-golden,
+  .bonus-drone {
+    left: 50%;
+    animation-name: bonus-hold;
+  }
+
+  .bonus-sprinkle {
+    top: calc(20% + var(--x) * 0.5);
+    animation-name: bonus-hold;
+  }
+
+  .bonus-mystery {
+    animation-name: bonus-hold;
   }
 
   .fx-float {

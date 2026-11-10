@@ -26,6 +26,8 @@ const BITE_MS = 150;
 export interface StageHandle {
   /** Big reaction text and bonus when a customer is full. */
   celebrate: (message: string, bonus: number) => void;
+  /** Floating text at a stage position, for caught bonuses and boosts. */
+  popText: (text: string, x: number, y: number, tone: "bonus" | "boost") => void;
 }
 
 export function Stage({
@@ -213,6 +215,17 @@ export function Stage({
           stage.clientWidth / 2,
           Math.max(mouth.y, 190) + 34,
           "fx-float fx-float-bonus",
+        );
+      },
+      popText: (text, x, y, tone) => {
+        const width = stageRef.current?.clientWidth ?? 0;
+        // Keep the label on screen when the catch happened near an edge.
+        const margin = Math.min(width / 2, 110);
+        floatText(
+          text,
+          Math.min(Math.max(x, margin), width - margin),
+          Math.max(y, 150),
+          `fx-float fx-float-${tone}`,
         );
       },
     }),

@@ -11,11 +11,18 @@ import {
 } from "react";
 import {
   FEEDERS,
+  FRENZY_DURATION_MS,
+  FRENZY_MULTIPLIER,
   type Progress,
+  SUGAR_RUSH_DURATION_MS,
+  SUGAR_RUSH_MULTIPLIER,
+  UNLOCK_BRAIN_FREEZE,
   appetiteFor,
   currentFlavor,
   feederCost,
+  hasUnlock,
   idleRate,
+  nextUnlock,
   isBigEater,
   tapUpgradeCost,
   tapValue,
@@ -23,6 +30,7 @@ import {
 import { getFeedReaction } from "../lib/feed-reactions";
 import { formatAmount, formatRate } from "../lib/number-format";
 import { PORTRAITS, type Portrait } from "../lib/portraits";
+import { BonusLayer } from "./game/BonusLayer";
 import { ShopSheet } from "./game/ShopSheet";
 import { Stage, type StageHandle } from "./game/Stage";
 import { useGameEngine } from "./game/useGameEngine";
@@ -190,6 +198,10 @@ function shufflePortraits(seed: string): readonly Portrait[] {
 
 function canAffordSomething(progress: Progress) {
   if (progress.scoops >= tapUpgradeCost(progress.tapLevel)) {
+    return true;
+  }
+  const unlock = nextUnlock(progress);
+  if (unlock && progress.scoops >= unlock.cost) {
     return true;
   }
   return FEEDERS.some(
@@ -390,9 +402,34 @@ export function GameClient() {
       onAwayEarnings: (amount) => {
         showNotice(`Your helpers fed ${formatAmount(amount)} while you were away.`);
       },
+      onFrenzy: () => {
+        showNotice(`Brain Freeze! Everything ×${FRENZY_MULTIPLIER}`);
+      },
     },
   );
-  const { progress, bigEaterRemainingMs, tap, buyTapUpgrade, buyFeeder } = engine;
+  const {
+    progress,
+    bigEaterRemainingMs,
+    boosts,
+    tap,
+    claimBonus,
+    buyTapUpgrade,
+    buyFeeder,
+    buyUnlock,
+  } = engine;
+
+  const catchBonus = useCallback(
+    (kind: Parameters<typeof claimBonus>[0], x: number, y: number) => {
+      const result = claimBonus(kind);
+      if (result) {
+        stageHandleRef.current?.popText(result.label, x, y, result.tone);
+        if (typeof navigator.vibrate === "function") {
+          navigator.vibrate(result.tone === "boost" ? [20, 40, 20] : 15);
+        }
+      }
+    },
+    [claimBonus],
+  );
 
   const refreshLeaderboard = useCallback(async () => {
     const data = await fetchLeaderboard();
@@ -595,6 +632,13 @@ export function GameClient() {
               </button>
             </div>
           ) : null}
+          {progress ? (
+            <BonusLayer
+              unlocks={progress.unlocks}
+              paused={hudPanel !== null || nicknameRequired}
+              onCatch={catchBonus}
+            />
+          ) : null}
           {showTapHint ? (
             <p className="tap-hint" aria-hidden="true">
               tap anywhere to feed
@@ -636,6 +680,44 @@ export function GameClient() {
                 </p>
               ) : null}
             </div>
+            {hasUnlock(progress, UNLOCK_BRAIN_FREEZE) || boosts.rushRemainingMs > 0 ? (
+              <div className="boosts">
+                {hasUnlock(progress, UNLOCK_BRAIN_FREEZE) ? (
+                  <div
+                    className={`boost boost-freeze${boosts.frenzyRemainingMs > 0 ? " boost-on" : ""}`}
+                    role="progressbar"
+                    aria-label="Brain Freeze meter"
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={
+                      boosts.frenzyRemainingMs > 0
+                        ? 100
+                        : Math.round(boosts.frenzyMeter * 100)
+                    }
+                  >
+                    <i
+                      style={{
+                        width: `${boosts.frenzyRemainingMs > 0 ? (boosts.frenzyRemainingMs / FRENZY_DURATION_MS) * 100 : boosts.frenzyMeter * 100}%`,
+                      }}
+                    />
+                    <span>
+                      {boosts.frenzyRemainingMs > 0
+                        ? `Brain Freeze ×${FRENZY_MULTIPLIER} · ${Math.ceil(boosts.frenzyRemainingMs / 1_000)}s`
+                        : "Brain Freeze · tap fast"}
+                    </span>
+                  </div>
+                ) : null}
+                {boosts.rushRemainingMs > 0 ? (
+                  <div className="boost boost-rush boost-on">
+                    <i style={{ width: `${(boosts.rushRemainingMs / SUGAR_RUSH_DURATION_MS) * 100}%` }} />
+                    <span>
+                      Sugar Rush ×{SUGAR_RUSH_MULTIPLIER} ·{" "}
+                      {Math.ceil(boosts.rushRemainingMs / 1_000)}s
+                    </span>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
           </header>
         ) : null}
 
@@ -646,6 +728,7 @@ export function GameClient() {
                 progress={progress}
                 onBuyTapUpgrade={buyTapUpgrade}
                 onBuyFeeder={buyFeeder}
+                onBuyUnlock={buyUnlock}
                 onClose={() => setShopOpen(false)}
               />
             ) : null}

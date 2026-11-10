@@ -2,6 +2,8 @@
 
 import {
   FEEDERS,
+  UNLOCKS,
+  nextUnlock,
   type Progress,
   feederCost,
   flavorMultiplier,
@@ -18,24 +20,28 @@ function ShopRow({
   cost,
   affordable,
   onBuy,
+  highlight = false,
 }: {
   icon: string;
   name: string;
   detail: string;
-  owned: number;
+  owned?: number;
   cost: number;
   affordable: boolean;
   onBuy: () => void;
+  highlight?: boolean;
 }) {
   return (
-    <li className={`shop-row${affordable ? " shop-row-affordable" : ""}`}>
+    <li
+      className={`shop-row${affordable ? " shop-row-affordable" : ""}${highlight ? " shop-row-unlock" : ""}`}
+    >
       <span className="shop-icon" aria-hidden="true">
         {icon}
       </span>
       <span className="shop-copy">
         <strong>
           {name}
-          {owned > 0 ? <em>{owned}</em> : null}
+          {owned ? <em>{owned}</em> : null}
         </strong>
         <span>{detail}</span>
       </span>
@@ -56,11 +62,13 @@ export function ShopSheet({
   progress,
   onBuyTapUpgrade,
   onBuyFeeder,
+  onBuyUnlock,
   onClose,
 }: {
   progress: Progress;
   onBuyTapUpgrade: () => void;
   onBuyFeeder: (index: number) => void;
+  onBuyUnlock: () => void;
   onClose: () => void;
 }) {
   const multiplier = flavorMultiplier(progress);
@@ -74,6 +82,7 @@ export function ShopSheet({
     -1,
   );
   const visibleFeeders = FEEDERS.slice(0, Math.min(FEEDERS.length, highestOwned + 3));
+  const unlock = nextUnlock(progress);
 
   return (
     <section className="shop-sheet" id="shop-sheet" aria-label="Shop">
@@ -84,6 +93,26 @@ export function ShopSheet({
           <span className="sr-only">Close shop</span>
         </button>
       </header>
+      <div className="shop-scroll">
+      {unlock ? (
+        <>
+          <h3 className="shop-section">
+            Unlocks <span>{progress.unlocks} of {UNLOCKS.length}</span>
+          </h3>
+          <ul className="shop-list">
+            <ShopRow
+              icon={unlock.icon}
+              name={unlock.name}
+              detail={unlock.description}
+              cost={unlock.cost}
+              affordable={progress.scoops >= unlock.cost}
+              onBuy={onBuyUnlock}
+              highlight
+            />
+          </ul>
+        </>
+      ) : null}
+      <h3 className="shop-section">Upgrades</h3>
       <ul className="shop-list">
         <ShopRow
           icon="👆"
@@ -110,6 +139,7 @@ export function ShopSheet({
           );
         })}
       </ul>
+      </div>
     </section>
   );
 }
