@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 const description =
-  "Clear ice cream boxes, unlock the 12-pack, master nine reload challenges, and climb the global leaderboard.";
+  "Tap to feed the crowd ice cream sandwiches, hire helpers to keep feeding while you rest, and climb the global leaderboard.";
 
 function fallbackOrigin(): URL {
   const vercelHost =
